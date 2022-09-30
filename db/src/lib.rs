@@ -1,10 +1,9 @@
 //! an embedded database using the sled framework
 
-pub mod config;
 use serde::Serialize;
 pub mod types;
 use anyhow::{anyhow, Result};
-use config::DbOpts;
+use config::database::DbOpts;
 use sled::{IVec, Tree};
 use std::sync::Arc;
 

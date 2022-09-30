@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DbOpts {
     /// if Some, enable compression and set factor to this
     pub compression_factor: Option<i32>,
@@ -12,7 +12,7 @@ pub struct DbOpts {
     pub system_page_cache: Option<u64>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum DbMode {
     LowSpace,
     Fast,
