@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct RequestGet {
-    pub keys: Vec<String>,
+    pub keys: Vec<Vec<u8>>,
 }
 
 #[derive(Serialize, Deserialize)]

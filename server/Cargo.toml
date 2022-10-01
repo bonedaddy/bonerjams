@@ -17,3 +17,5 @@ log = "0.4"
 serde_json = "1"
 db = {path = "../db"}
 config = {path = "../config"}
+reqwest = {version = "0.11", features = ["blocking"]}
+tower = "0.4"
