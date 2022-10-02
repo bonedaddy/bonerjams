@@ -143,7 +143,7 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
             };
             let mut batch = DbBatch::new();
             for key in keys.iter_mut() {
-                if let Err(err) = batch.remove_raw(&key) {
+                if let Err(err) = batch.remove_raw(key) {
                     return Err(Status::new(tonic::Code::Internal, err.to_string()));
                 }
             }
