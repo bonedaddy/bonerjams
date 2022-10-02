@@ -5,7 +5,6 @@ use simplelog::*;
 #[derive(Clone, Deserialize, Serialize, Default)]
 pub struct Configuration {
     pub db: database::DbOpts,
-    pub debug_log: bool,
     pub rpc: RPC,
 }
 
@@ -18,28 +17,6 @@ impl Configuration {
             serde_yaml::from_slice(data.as_slice())?
         };
         Ok(config)
-    }
-    pub fn init_log(&self) -> anyhow::Result<()> {
-        if self.debug_log {
-            TermLogger::init(
-                LevelFilter::Debug,
-                ConfigBuilder::new()
-                    .set_location_level(LevelFilter::Debug)
-                    .build(),
-                TerminalMode::Mixed,
-                ColorChoice::Auto,
-            )?;
-        } else {
-            TermLogger::init(
-                LevelFilter::Info,
-                ConfigBuilder::new()
-                    .set_location_level(LevelFilter::Error)
-                    .build(),
-                TerminalMode::Mixed,
-                ColorChoice::Auto,
-            )?;
-        }
-        Ok(())
     }
     /// saves the configuration file to disk.
     /// when `store_market_data`is false, the `Markets.data` field is reset to default
@@ -81,4 +58,27 @@ impl Default for RPC {
             auth_token: "".to_string(),
         }
     }
+}
+
+pub fn init_log(debug_log: bool) -> anyhow::Result<()> {
+    if debug_log {
+        TermLogger::init(
+            LevelFilter::Debug,
+            ConfigBuilder::new()
+                .set_location_level(LevelFilter::Debug)
+                .build(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        )?;
+    } else {
+        TermLogger::init(
+            LevelFilter::Info,
+            ConfigBuilder::new()
+                .set_location_level(LevelFilter::Error)
+                .build(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        )?;
+    }
+    Ok(())
 }

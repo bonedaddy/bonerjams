@@ -224,7 +224,6 @@ mod test {
     #[allow(unused_must_use)]
     async fn test_run_server() {
         let conf = Configuration {
-            debug_log: false,
             db: DbOpts {
                 path: "/tmp/kek2232222.db".to_string(),
                 ..Default::default()
@@ -236,7 +235,7 @@ mod test {
                 auth_token: "Bearer some-secret-token".to_string(),
             },
         };
-        conf.init_log();
+        config::init_log(true);
 
         run_server(conf).await;
     }

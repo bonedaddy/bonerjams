@@ -61,13 +61,13 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
         },
         ("server", Some(_)) => {
             let conf = get_config(config_file_path)?;
-            conf.init_log()?;
+            config::init_log(false)?;
             db::rpc::server::start_server(conf).await
         }
         ("client", Some(client_cmd)) => match client_cmd.subcommand() {
             ("put", Some(put_cmd)) => {
                 let conf = get_config(config_file_path)?;
-                conf.init_log()?;
+                config::init_log(false)?;
                 let client =
                     db::rpc::client::Client::new(&conf.rpc.client_url(), &conf.rpc.auth_token)
                         .await?;
@@ -80,7 +80,7 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
             }
             ("get", Some(get_cmd)) => {
                 let conf = get_config(config_file_path)?;
-                conf.init_log()?;
+                config::init_log(false)?;
                 let client =
                     db::rpc::client::Client::new(&conf.rpc.client_url(), &conf.rpc.auth_token)
                         .await?;
