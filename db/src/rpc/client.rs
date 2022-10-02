@@ -1,9 +1,16 @@
-use std::sync::Arc;
-use tonic::{transport::Channel, codegen::{InterceptedService, Service}, Request, Status, service::interceptor::InterceptorLayer};
-use tower::ServiceBuilder;
-
-use crate::{types::*, check_auth};
+use super::server::check_auth;
+use super::server::*;
+use super::types::*;
+use crate::{Database, DbTrees};
 use anyhow::Result;
+use std::sync::Arc;
+use tonic::{
+    codegen::{InterceptedService, Service},
+    service::interceptor::InterceptorLayer,
+    transport::Channel,
+    Request, Status,
+};
+use tower::ServiceBuilder;
 
 use self::auth_service::AuthSvc;
 
@@ -15,7 +22,7 @@ pub struct BatchPutEntry {
 #[derive(Clone)]
 struct InnerClient {
     auth_token: String,
-    kc: Channel
+    kc: Channel,
 }
 
 pub struct Client {
@@ -59,11 +66,19 @@ impl Client {
 }
 
 impl InnerClient {
-    async fn authenticated_client(&mut self) -> key_value_store_client::KeyValueStoreClient<InterceptedService<AuthSvc, fn(req: Request<()>) -> Result<Request<()>, Status>>> {
-        key_value_store_client::KeyValueStoreClient::new(ServiceBuilder::new()
-        .layer(tonic::service::interceptor(intercept as fn(req: Request<()>) -> Result<Request<()>, Status>))
-        .layer_fn(auth_service::AuthSvc::new)
-        .service(self.kc.clone()))
+    async fn authenticated_client(
+        &mut self,
+    ) -> key_value_store_client::KeyValueStoreClient<
+        InterceptedService<AuthSvc, fn(req: Request<()>) -> Result<Request<()>, Status>>,
+    > {
+        key_value_store_client::KeyValueStoreClient::new(
+            ServiceBuilder::new()
+                .layer(tonic::service::interceptor(
+                    intercept as fn(req: Request<()>) -> Result<Request<()>, Status>,
+                ))
+                .layer_fn(auth_service::AuthSvc::new)
+                .service(self.kc.clone()),
+        )
     }
     fn client(&mut self) -> key_value_store_client::KeyValueStoreClient<Channel> {
         key_value_store_client::KeyValueStoreClient::new(self.kc.clone())
@@ -89,13 +104,9 @@ impl InnerClient {
                 .collect(),
         };
         if self.auth_token.is_empty() {
-            self.client()
-            .put_kvs(req)
-            .await?;
+            self.client().put_kvs(req).await?;
         } else {
-            self.authenticated_client().await
-            .put_kvs(req)
-            .await?;
+            self.authenticated_client().await.put_kvs(req).await?;
         }
 
         Ok(())
@@ -104,7 +115,10 @@ impl InnerClient {
         if self.auth_token.is_empty() {
             self.client().put_kv((key.to_vec(), value.to_vec())).await?;
         } else {
-            self.authenticated_client().await.put_kv((key.to_vec(), value.to_vec())).await?;
+            self.authenticated_client()
+                .await
+                .put_kv((key.to_vec(), value.to_vec()))
+                .await?;
         }
         Ok(())
     }
@@ -112,16 +126,25 @@ impl InnerClient {
         if self.auth_token.is_empty() {
             Ok(self.client().get_kv(key.to_vec()).await?.into_inner())
         } else {
-            Ok(self.authenticated_client().await.get_kv(key.to_vec()).await?.into_inner())
+            Ok(self
+                .authenticated_client()
+                .await
+                .get_kv(key.to_vec())
+                .await?
+                .into_inner())
         }
     }
     async fn list(&mut self, tree: &[u8]) -> Result<Values> {
         if self.auth_token.is_empty() {
             Ok(self.client().list(tree.to_vec()).await?.into_inner())
         } else {
-            Ok(self.authenticated_client().await.list(tree.to_vec()).await?.into_inner())
+            Ok(self
+                .authenticated_client()
+                .await
+                .list(tree.to_vec())
+                .await?
+                .into_inner())
         }
-        
     }
     /// blocks until the client, and rpc server is ready
     async fn ready(&mut self) -> Result<()> {
@@ -160,7 +183,8 @@ impl InnerClient {
 }
 // An interceptor function.
 fn intercept(mut req: Request<()>) -> Result<Request<()>, Status> {
-    req.metadata_mut().insert("authorization", "Bearer some-secret-token".parse().unwrap());
+    req.metadata_mut()
+        .insert("authorization", "Bearer some-secret-token".parse().unwrap());
     println!("received {:?}", req);
     Ok(req)
 }

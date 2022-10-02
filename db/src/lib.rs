@@ -1,5 +1,6 @@
 //! an embedded database using the sled framework
 
+pub mod rpc;
 use serde::Serialize;
 pub mod types;
 use anyhow::{anyhow, Result};

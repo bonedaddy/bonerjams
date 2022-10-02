@@ -1,13 +1,14 @@
-pub mod client;
-pub mod types;
-use tonic_health::{server::HealthReporter, ServingStatus};
-use types::*;
-
-use db::{types::DbKey, DbBatch};
+use super::types::*;
+use crate::{types::DbKey, DbBatch};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
-use tonic::{transport::{Server, Channel}, Status, Request, metadata::MetadataValue};
+use tonic::{
+    metadata::MetadataValue,
+    transport::{Channel, Server},
+    Request, Status,
+};
+use tonic_health::{server::HealthReporter, ServingStatus};
 
 #[tonic::async_trait]
 impl key_value_store_server::KeyValueStore for Arc<State> {
@@ -30,9 +31,9 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
         let db = self.db.clone();
         let arg = request.into_inner();
         let tree = if arg.is_empty() {
-            db::types::DbTrees::Default
+            crate::types::DbTrees::Default
         } else {
-            db::types::DbTrees::Binary(&arg[..])
+            crate::types::DbTrees::Binary(&arg[..])
         };
         let db_tree = match db.open_tree(tree) {
             Ok(tree) => tree,
@@ -56,7 +57,7 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
     ) -> Result<tonic::Response<Empty>, tonic::Status> {
         let db = self.db.clone();
         let (key, value) = key.into_inner();
-        let db_tree = match db.open_tree(db::types::DbTrees::Default) {
+        let db_tree = match db.open_tree(crate::types::DbTrees::Default) {
             Ok(tree) => tree,
             Err(err) => return Err(Status::new(tonic::Code::Internal, err.to_string())),
         };
@@ -89,9 +90,9 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
                 }
             };
             let tree = if tree_name.is_empty() {
-                db::types::DbTrees::Default
+                crate::types::DbTrees::Default
             } else {
-                db::types::DbTrees::Binary(&tree_name[..])
+                crate::types::DbTrees::Binary(&tree_name[..])
             };
             let db_tree = match db.open_tree(tree) {
                 Ok(tree) => tree,
@@ -123,27 +124,28 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
     }
 }
 pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
-    let listener = TcpListenerStream::new(TcpListener::bind(&conf.rpc_endpoint).await?);
+    let listener = TcpListenerStream::new(TcpListener::bind(&conf.rpc.server_url()).await?);
     let state = Arc::new(State {
-        db: db::Database::new(&conf.db)?,
+        db: crate::Database::new(&conf.db)?,
     });
     let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
-    health_reporter.set_service_status(HealthCheck { ok: true }, ServingStatus::Serving).await;
+    health_reporter
+        .set_service_status(HealthCheck { ok: true }, ServingStatus::Serving)
+        .await;
 
-    let server_builder = Server::builder()
-    .add_service(health_service);
+    let server_builder = Server::builder().add_service(health_service);
 
-    let server_builder = if !conf.rpc_auth_token.is_empty() {
-        server_builder.add_service(key_value_store_server::KeyValueStoreServer::with_interceptor(state, check_auth))
+    let server_builder = if !conf.rpc.auth_token.is_empty() {
+        server_builder.add_service(
+            key_value_store_server::KeyValueStoreServer::with_interceptor(state, check_auth),
+        )
     } else {
         server_builder.add_service(key_value_store_server::KeyValueStoreServer::new(state))
     };
-    Ok(server_builder
-        .serve_with_incoming(listener)
-        .await?)
+    Ok(server_builder.serve_with_incoming(listener).await?)
 }
 
-fn check_auth(req: Request<()>) -> Result<Request<()>, Status> {
+pub fn check_auth(req: Request<()>) -> Result<Request<()>, Status> {
     let token: MetadataValue<_> = "Bearer some-secret-token".parse().unwrap();
 
     match req.metadata().get("authorization") {
@@ -153,12 +155,11 @@ fn check_auth(req: Request<()>) -> Result<Request<()>, Status> {
 }
 #[cfg(test)]
 mod test {
+    use crate::rpc::client;
+    use crate::rpc::client::BatchPutEntry;
+    use crate::rpc::types::KeyValue;
     use config::{database::DbOpts, Configuration};
     use std::collections::HashMap;
-
-    use crate::client::BatchPutEntry;
-
-    use super::*;
     #[tokio::test(flavor = "multi_thread")]
     #[allow(unused_must_use)]
     async fn test_run_server() {
@@ -168,8 +169,7 @@ mod test {
                 path: "/tmp/kek2232222.db".to_string(),
                 ..Default::default()
             },
-            rpc_auth_token: "Bearer some-secret-token".to_string(),
-            rpc_endpoint: "0.0.0.0:8668".to_string(),
+            ..Default::default()
         };
         conf.init_log();
 
@@ -178,8 +178,10 @@ mod test {
 
     // starts the server and runs some basic tests
     async fn run_server(conf: config::Configuration) {
-        tokio::spawn(async move { start_server(conf).await });
-        let client = client::Client::new("http://127.0.0.1:8668",  "Bearer some-secret-token").await.unwrap();
+        tokio::spawn(async move { super::start_server(conf).await });
+        let client = client::Client::new("http://127.0.0.1:8668", "Bearer some-secret-token")
+            .await
+            .unwrap();
         client
             .put(
                 "four twenty blaze".as_bytes(),

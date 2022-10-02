@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use db::types::DbKey;
+use crate::types::DbKey;
 use tonic::transport::NamedService;
 
 #[derive(Clone)]
 pub struct State {
-    pub db: std::sync::Arc<db::Database>,
+    pub db: std::sync::Arc<crate::Database>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
