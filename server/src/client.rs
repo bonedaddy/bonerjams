@@ -1,74 +1,111 @@
-use std::sync::atomic::Ordering;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tonic::transport::Channel;
 
-use serde_json::{Value, json};
-use reqwest::header::CONTENT_TYPE;
+use crate::types::*;
+use anyhow::{anyhow, Result};
+
+pub struct BatchPutEntry {
+    pub key: Vec<u8>,
+    pub value: Vec<u8>,
+}
+
+#[derive(Clone)]
+struct InnerClient {
+    kc: key_value_store_client::KeyValueStoreClient<Channel>,
+}
 
 pub struct Client {
-    pub url: String,
-    pub request_id: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    inner: InnerClient,
 }
-
-pub enum RpcRequest {
-    Get,
-    Put,
-    NewTree,
-}
-
 
 impl Client {
-    pub fn new(url: &str) -> Self {
-        Self {
-            url: url.to_string(),
-            request_id: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0))
-        }
+    pub async fn new(url: &str) -> Result<Arc<Client>> {
+        let client = Arc::new(Client {
+            inner: InnerClient {
+                kc: key_value_store_client::KeyValueStoreClient::connect(url.to_string()).await?,
+            },
+        });
+        client.ready().await?;
+        Ok(client)
     }
-    pub fn send(&self, request: RpcRequest, params: Value) {
-        let id = self.request_id.fetch_add(1, Ordering::SeqCst);
-        let json_request = request.build_request_json(id, params);
-        let json_response = reqwest::blocking::Client::new()
-        .post(&self.url)
-        .header(CONTENT_TYPE, "application/json")
-        .body(json_request.to_string())
-        .send().unwrap();
-        println!("response {:#?}", json_response);
+    pub async fn batch_put(
+        self: &Arc<Self>,
+        args: Vec<(Vec<u8>, Vec<BatchPutEntry>)>,
+    ) -> Result<()> {
+        let mut inner = self.inner.clone();
+        Ok(inner.batch_put(args).await?)
     }
-    pub async fn async_send(&self, request: RpcRequest, params: Value) {
-        let id = self.request_id.fetch_add(1, Ordering::SeqCst);
-        let json_request = request.build_request_json(id, params);
-        let json_response = reqwest::Client::new()
-        .post(&self.url)
-        .header(CONTENT_TYPE, "application/json")
-        .body(json_request.to_string())
-        .send().await.unwrap();
-        println!("response {:#?}", json_response);
+    pub async fn put(self: &Arc<Self>, key: &[u8], value: &[u8]) -> Result<()> {
+        let mut inner = self.inner.clone();
+        Ok(inner.put(key, value).await?)
     }
-    pub fn new_request(&self, request: RpcRequest, params: Value) -> Value {
-        request.build_request_json(
-            self.request_id.fetch_add(1, Ordering::SeqCst),
-            params
-        )
+    pub async fn get(self: &Arc<Self>, key: &[u8]) -> Result<Vec<u8>> {
+        let mut inner = self.inner.clone();
+        Ok(inner.get(key).await?)
     }
-}
-
-impl RpcRequest {
-    pub(crate) fn build_request_json(self, id: u64, params: Value) -> Value {
-        let jsonrpc = "2.0";
-        json!({
-           "jsonrpc": jsonrpc,
-           "id": id,
-           "method": format!("{}", self.to_string()),
-           "params": params,
-        })
+    pub async fn list(self: &Arc<Self>, tree: &[u8]) -> Result<Values> {
+        let mut inner = self.inner.clone();
+        Ok(inner.list(tree).await?)
+    }
+    /// blocks until the client, and rpc server is ready
+    pub async fn ready(self: &Arc<Self>) -> Result<()> {
+        let mut inner = self.inner.clone();
+        Ok(inner.ready().await?)
     }
 }
 
-
-impl ToString for RpcRequest {
-    fn to_string(&self) -> String {
-        match self {
-            Self::Get => "get".to_string(),
-            Self::Put => "put".to_string(),
-            Self::NewTree => "newTree".to_string(),
+impl InnerClient {
+    /// args maps trees -> keyvalues
+    async fn batch_put(&mut self, args: Vec<(Vec<u8>, Vec<BatchPutEntry>)>) -> Result<()> {
+        self.kc
+            .put_kvs(PutKVsRequest {
+                entries: args
+                    .into_iter()
+                    .map(|(tree, key_values)| {
+                        let tree = base64::encode(tree);
+                        (
+                            tree,
+                            key_values
+                                .into_iter()
+                                .map(|key_value| KeyValue {
+                                    key: key_value.key,
+                                    value: key_value.value,
+                                })
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+                    .collect(),
+            })
+            .await?;
+        Ok(())
+    }
+    async fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+        let _ = self.kc.put_kv((key.to_vec(), value.to_vec())).await?;
+        Ok(())
+    }
+    async fn get(&mut self, key: &[u8]) -> Result<Vec<u8>> {
+        Ok(self.kc.get_kv(key.to_vec()).await?.into_inner())
+    }
+    async fn list(&mut self, tree: &[u8]) -> Result<Values> {
+        Ok(self.kc.list(tree.to_vec()).await?.into_inner())
+    }
+    /// blocks until the client, and rpc server is ready
+    async fn ready(&mut self) -> Result<()> {
+        loop {
+            match self.kc.health_check(()).await {
+                Ok(ok) => {
+                    if !ok.into_inner().ok {
+                        log::warn!("health check not ok, waiting...");
+                    } else {
+                        return Ok(());
+                    }
+                }
+                Err(err) => {
+                    log::warn!("client not ready, waiting... {:#?}", err);
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await
         }
     }
 }

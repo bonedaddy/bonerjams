@@ -1,175 +1,231 @@
 pub mod client;
 pub mod types;
-use axum::extract::{ContentLengthLimit, Extension, State};
-use axum::routing::post;
-use axum::Router;
-use axum_jrpc::error::{JsonRpcError, JsonRpcErrorReason};
-use axum_jrpc::{JrpcResult, JsonRpcExtractor, JsonRpcResponse};
-use db::types::DbTrees;
-use serde::Deserialize;
-use std::sync::Arc;
-use tower::ServiceBuilder;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
 
-#[derive(Clone)]
-pub struct AppState {
-    pub db: Arc<db::Database>,
+use std::collections::HashMap;
+use types::*;
+
+use db::{types::DbKey, DbBatch};
+use std::sync::Arc;
+use tokio::net::TcpListener;
+use tokio_stream::wrappers::TcpListenerStream;
+use tonic::{transport::Server, Status};
+use tonic_rpc::tonic_rpc;
+
+#[tonic::async_trait]
+impl key_value_store_server::KeyValueStore for Arc<State> {
+    async fn get_kv(
+        &self,
+        request: tonic::Request<Vec<u8>>,
+    ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+        let db = self.db.clone();
+        let arg = request.into_inner();
+        match db.get(arg) {
+            Ok(Some(key)) => Ok(tonic::Response::new(key.to_vec())),
+            Ok(None) => Err(Status::new(tonic::Code::NotFound, "")),
+            Err(err) => Err(Status::new(tonic::Code::Internal, err.to_string())),
+        }
+    }
+    async fn list(
+        &self,
+        request: tonic::Request<Vec<u8>>,
+    ) -> Result<tonic::Response<Values>, tonic::Status> {
+        let db = self.db.clone();
+        let arg = request.into_inner();
+        let tree = if arg.is_empty() {
+            db::types::DbTrees::Default
+        } else {
+            db::types::DbTrees::Binary(&arg[..])
+        };
+        let db_tree = match db.open_tree(tree) {
+            Ok(tree) => tree,
+            Err(err) => return Err(Status::new(tonic::Code::Internal, err.to_string())),
+        };
+        let values: Values = db_tree
+            .iter()
+            .collect::<Vec<_>>()
+            .iter()
+            .flatten()
+            .map(|(key, value)| KeyValue {
+                key: key.to_vec(),
+                value: value.to_vec(),
+            })
+            .collect();
+        Ok(tonic::Response::new(values))
+    }
+    async fn put_kv(
+        &self,
+        key: tonic::Request<(Vec<u8>, Vec<u8>)>,
+    ) -> Result<tonic::Response<Empty>, tonic::Status> {
+        let db = self.db.clone();
+        let (key, value) = key.into_inner();
+        let db_tree = match db.open_tree(db::types::DbTrees::Default) {
+            Ok(tree) => tree,
+            Err(err) => return Err(Status::new(tonic::Code::Internal, err.to_string())),
+        };
+        match db_tree.insert_raw(&key[..], &value[..]) {
+            Ok(_) => {
+                if let Err(err) = db_tree.flush_async().await {
+                    return Err(Status::new(tonic::Code::Internal, err.to_string()));
+                }
+                if let Err(err) = db.flush_async().await {
+                    return Err(Status::new(tonic::Code::Internal, err.to_string()));
+                }
+                Ok(tonic::Response::new(Empty {}))
+            }
+            Err(err) => Err(Status::new(tonic::Code::Internal, err.to_string())),
+        }
+    }
+    async fn put_kvs(
+        &self,
+        request: tonic::Request<PutKVsRequest>,
+    ) -> Result<tonic::Response<Empty>, tonic::Status> {
+        let db = self.db.clone();
+        let mut args = request.into_inner();
+        for (tree, values) in args.entries.iter_mut() {
+            let tree_name = if tree.is_empty() {
+                vec![]
+            } else {
+                match base64::decode(tree) {
+                    Ok(tree_name) => tree_name,
+                    Err(err) => return Err(Status::new(tonic::Code::Internal, err.to_string())),
+                }
+            };
+            let tree = if tree_name.is_empty() {
+                db::types::DbTrees::Default
+            } else {
+                db::types::DbTrees::Binary(&tree_name[..])
+            };
+            let db_tree = match db.open_tree(tree) {
+                Ok(tree) => tree,
+                Err(err) => return Err(Status::new(tonic::Code::Internal, err.to_string())),
+            };
+            let mut batch = DbBatch::new();
+            for value in values.iter_mut() {
+                if let Err(err) = batch.insert_raw(&value.key[..], &value.value[..]) {
+                    return Err(Status::new(tonic::Code::Internal, err.to_string()));
+                }
+            }
+            if let Err(err) = db_tree.apply_batch(&mut batch) {
+                return Err(Status::new(tonic::Code::Internal, err.to_string()));
+            }
+            if let Err(err) = db_tree.flush_async().await {
+                return Err(Status::new(tonic::Code::Internal, err.to_string()));
+            }
+            if let Err(err) = db.flush_async().await {
+                return Err(Status::new(tonic::Code::Internal, err.to_string()));
+            }
+        }
+        Ok(tonic::Response::new(Empty {}))
+    }
+    async fn health_check(
+        &self,
+        _request: tonic::Request<()>,
+    ) -> Result<tonic::Response<HealthCheck>, tonic::Status> {
+        Ok(tonic::Response::new(HealthCheck { ok: true }))
+    }
 }
 
-pub async fn start_rpc_server(conf: config::Configuration) -> anyhow::Result<()> {
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".into()),
-        ))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-    let router = router(AppState {
+pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
+    let listener = TcpListenerStream::new(TcpListener::bind(&conf.rpc_endpoint).await?);
+    let state = Arc::new(State {
         db: db::Database::new(&conf.db)?,
     });
 
-    log::debug!("listening");
-    axum::Server::bind(&conf.rpc_endpoint.parse().unwrap())
-        .serve(router.into_make_service())
-        .await
-        .unwrap();
-    Ok(())
+    Ok(Server::builder()
+        .add_service(key_value_store_server::KeyValueStoreServer::new(state))
+        .serve_with_incoming(listener)
+        .await?)
 }
-
-pub fn router(state: AppState) -> Router {
-    Router::new().route("/", post(handler)).layer(
-        ServiceBuilder::new()
-            .layer(Extension(Arc::new(state)))
-            .into_inner(),
-    )
-}
-
-async fn handler(
-    Extension(state): Extension<Arc<AppState>>,
-    ContentLengthLimit(value): ContentLengthLimit<JsonRpcExtractor, 1024>,
-) -> JrpcResult {
-    use crate::types::{Empty, KeyValue, RequestGet, RequestPut, ResponseGet};
-    let answer_id = value.get_answer_id();
-    println!("{:?}", value);
-    match value.method.as_str() {
-        "get" => {
-            let request: RequestGet = value.parse_params()?;
-            Ok(JsonRpcResponse::success(
-                answer_id,
-                ResponseGet {
-                    values: request
-                        .keys
-                        .iter()
-                        .filter_map(|key| {
-                            if let Ok(Some(value)) = state.db.get(key) {
-                                Some(value.to_vec())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>(),
-                },
-            ))
-        }
-        "put" => {
-            let request: RequestPut = value.parse_params()?;
-            for entry in request.entries.iter() {
-                let tree = if entry.tree.is_empty() {
-                    DbTrees::Default
-                } else {
-                    DbTrees::Custom(entry.tree.as_str())
-                };
-                match state.db.open_tree(tree) {
-                    Ok(db_tree) => {
-                        if let Err(err) = db_tree.insert(&entry.data) {
-                            log::error!("failed to insert entry {:#?}", err);
-                        }
-                    }
-                    Err(err) => {
-                        return Err(JsonRpcResponse::error(
-                            answer_id,
-                            CustomError::Unknown(err.to_string()).into(),
-                        ))
-                    }
-                }
-            }
-            Ok(JsonRpcResponse::success(answer_id, Empty {}))
-        }
-        "newTree" => {
-            // tree name
-            let result: String = value.parse_params()?;
-            if let Err(err) = state.db.open_tree(DbTrees::Custom(result.as_str())) {
-                return Err(JsonRpcResponse::error(
-                    answer_id,
-                    CustomError::Unknown(err.to_string()).into(),
-                ));
-            }
-            Ok(JsonRpcResponse::success(answer_id, Empty {}))
-        }
-        method => Ok(value.method_not_found(method)),
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-enum CustomError {
-    #[error("{0}")]
-    Unknown(String),
-}
-
-impl From<CustomError> for JsonRpcError {
-    fn from(error: CustomError) -> Self {
-        JsonRpcError::new(
-            JsonRpcErrorReason::ServerError(-32099),
-            error.to_string(),
-            serde_json::Value::Null,
-        )
-    }
-}
-
 #[cfg(test)]
-mod tests {
+mod test {
+    use config::{database::DbOpts, Configuration};
+
+    use crate::client::BatchPutEntry;
+
     use super::*;
-    use crate::{
-        client::{Client, RpcRequest},
-        types::{Entry, RequestPut},
-    };
-    use axum::{
-        body::Body,
-        http::{self, Request, StatusCode},
-    };
-    use reqwest::header::CONTENT_TYPE;
-    use serde_json::{json, Value};
-    use std::net::{SocketAddr, TcpListener};
-    use tower::util::ServiceExt;
-    // You can also spawn a server and talk to it like any other HTTP server:
-    #[tokio::test]
-    async fn test_basic_server() {
-        let conf = config::Configuration {
-            db: config::database::DbOpts {
-                path: "/tmp/bonerjams.db".to_string(),
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(unused_must_use)]
+    async fn test_run_server() {
+        let conf = Configuration {
+            debug_log: false,
+            db: DbOpts {
+                path: "/tmp/kek2232222.db".to_string(),
                 ..Default::default()
             },
-            rpc_endpoint: "0.0.0.0:42696".to_string(),
+            rpc_endpoint: "0.0.0.0:8668".to_string(),
         };
-        {
-            let conf = conf.clone();
-            tokio::spawn(async move {
-                let _ = start_rpc_server(conf).await;
-            });
-        }
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        let client = Client::new("http://127.0.0.1:42696");
+        conf.init_log();
+
+        run_server(conf).await;
+    }
+
+    // starts the server and runs some basic tests
+    async fn run_server(conf: config::Configuration) {
+        tokio::spawn(async move { start_server(conf).await });
+        let client = client::Client::new("http://127.0.0.1:8668").await.unwrap();
         client
-            .async_send(
-                RpcRequest::Put,
-                serde_json::json!([Entry {
-                    tree: "".to_string(),
-                    data: types::KeyValue {
-                        key: "foo_bar".as_bytes().to_vec(),
-                        value: "baz".as_bytes().to_vec()
-                    }
-                }]),
+            .put(
+                "four twenty blaze".as_bytes(),
+                "sixty nine gigity".as_bytes(),
             )
-            .await;
+            .await
+            .unwrap();
+        client.put("1".as_bytes(), "2".as_bytes()).await.unwrap();
+        client.put("3".as_bytes(), "4".as_bytes()).await.unwrap();
+        let response = client.get("four twenty blaze".as_bytes()).await.unwrap();
+        println!("key 'four twenty blaze', value {:?}", unsafe {
+            String::from_utf8_unchecked(response)
+        });
+
+        let mut entries = HashMap::new();
+        entries.insert(
+            "".to_string(),
+            vec![KeyValue {
+                key: "sixety_nine".as_bytes().to_vec(),
+                value: "l33tm0d3".as_bytes().to_vec(),
+            }],
+        );
+        entries.insert(
+            base64::encode(vec![4, 2, 0]),
+            vec![KeyValue {
+                key: "sixety_nine".as_bytes().to_vec(),
+                value: "l33tm0d3".as_bytes().to_vec(),
+            }],
+        );
+        client
+            .batch_put(vec![
+                (
+                    vec![],
+                    vec![BatchPutEntry {
+                        key: "sixety_nine".as_bytes().to_vec(),
+                        value: "l33tm0d3".as_bytes().to_vec(),
+                    }],
+                ),
+                (
+                    vec![4, 2, 0],
+                    vec![BatchPutEntry {
+                        key: "sixety_nine".as_bytes().to_vec(),
+                        value: "l33tm0d3".as_bytes().to_vec(),
+                    }],
+                ),
+            ])
+            .await
+            .unwrap();
+        let response = client.get("four twenty blaze".as_bytes()).await.unwrap();
+        println!("response {}", unsafe {
+            String::from_utf8_unchecked(response)
+        });
+        client
+            .list(&[])
+            .await
+            .unwrap()
+            .iter()
+            .for_each(|key_value| {
+                println!(
+                    "key {}, value {}",
+                    unsafe { String::from_utf8_unchecked(key_value.key.clone()) },
+                    unsafe { String::from_utf8_unchecked(key_value.value.clone()) }
+                )
+            });
     }
 }

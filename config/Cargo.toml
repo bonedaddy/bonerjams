@@ -10,3 +10,6 @@ serde = {version = "1", features = ["derive"]}
 serde_yaml = "0.9"
 serde_json = "1"
 sled = "0.34.7"
+simplelog = "0.12"
+log = "0.4"
+anyhow = "1" 

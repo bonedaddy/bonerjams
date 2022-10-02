@@ -6,16 +6,15 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1"
-axum-jrpc = "0.3.0-rc.1"
-thiserror = "1"
-tokio = { version = "1", features = ["full"] } 
-axum = "0.6.0-rc.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-serde = {version = "1", features = ["derive"]}
-log = "0.4"
-serde_json = "1"
+tokio = { version = "1", features = [ "rt-multi-thread", "macros", "full", "tracing", "parking_lot"] }
+tokio-stream = { version = "0.1", features = [ "net" ] }
+tonic = "0.8"
+tonic-rpc = {version = "0.2", features = ["json"]}
+serde = {version = "1.0", features = ["derive"]}
 db = {path = "../db"}
 config = {path = "../config"}
-reqwest = {version = "0.11", features = ["blocking"]}
-tower = "0.4"
+anyhow = "1"
+base64 = "0.13"
+zmq = {version ="0.9.2", features = ["vendored"]}
+sled = "0.34.7"
+log = "0.4"

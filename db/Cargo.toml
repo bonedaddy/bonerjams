@@ -13,3 +13,4 @@ sled = "0.34.7"
 anyhow = "1"
 log = "0.4"
 config = {path = "../config"}
+base64 = "0.12"

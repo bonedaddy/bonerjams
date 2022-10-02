@@ -57,6 +57,9 @@ impl Database {
             })
             .collect())
     }
+    pub async fn flush_async(&self) -> sled::Result<usize> {
+        self.db.flush_async().await
+    }
     /// flushes teh database
     pub fn flush(self: &Arc<Self>) -> Result<usize> {
         Ok(self.db.flush()?)
@@ -96,6 +99,10 @@ impl Database {
     pub fn apply_batch(&self, batch: &mut DbBatch) -> sled::Result<()> {
         self.db.apply_batch(batch.take_inner())
     }
+    /// insert raw, untyped bytes
+    pub fn insert_raw(&self, key: &[u8], value: &[u8]) -> Result<Option<sled::IVec>> {
+        Ok(self.db.insert(key, value)?)
+    }
     /// inserts a value into the default tree
     pub fn insert<T>(&mut self, value: &T) -> Result<()>
     where
@@ -112,7 +119,7 @@ impl Database {
 
 impl DbTree {
     pub fn open(db: &sled::Db, tree: DbTrees) -> Result<Arc<Self>> {
-        let tree = db.open_tree(tree.str())?;
+        let tree = db.open_tree(&tree.to_string())?;
         Ok(Arc::new(Self { tree }))
     }
     pub fn len(&self) -> usize {
@@ -130,6 +137,9 @@ impl DbTree {
     pub fn flush(&self) -> sled::Result<usize> {
         self.tree.flush()
     }
+    pub async fn flush_async(&self) -> sled::Result<usize> {
+        self.tree.flush_async().await
+    }
     pub fn apply_batch(&self, batch: &mut DbBatch) -> sled::Result<()> {
         self.tree.apply_batch(batch.take_inner())
     }
@@ -139,10 +149,15 @@ impl DbTree {
     {
         Ok(self.tree.insert(value.key()?, serde_json::to_vec(value)?)?)
     }
+    /// insert raw, untyped bytes
+    pub fn insert_raw(&self, key: &[u8], value: &[u8]) -> Result<Option<sled::IVec>> {
+        Ok(self.tree.insert(key, value)?)
+    }
     pub fn get<K: AsRef<[u8]>>(&self, key: K) -> sled::Result<Option<sled::IVec>> {
         self.tree.get(key)
     }
-    pub fn entries<K: PartialEq + DbKey, T>(&self, skip_keys: &[K]) -> Result<Vec<T>>
+    /// currently broken
+    pub fn entries2<K: PartialEq + DbKey, T>(&self, skip_keys: &[K]) -> Result<Vec<T>>
     where
         T: serde::de::DeserializeOwned,
     {
@@ -204,6 +219,11 @@ impl DbBatch {
         T: Serialize + DbKey,
     {
         self.batch.remove(value.key()?);
+        self.count += 1;
+        Ok(())
+    }
+    pub fn insert_raw(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.batch.insert(key, value);
         self.count += 1;
         Ok(())
     }
