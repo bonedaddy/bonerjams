@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use db::types::DbKey;
+use tonic::transport::NamedService;
 
 #[derive(Clone)]
 pub struct State {
@@ -49,12 +50,22 @@ impl DbKey for KeystoreValue {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Default)]
 pub struct HealthCheck {
     pub ok: bool,
 }
 
-#[tonic_rpc::tonic_rpc(json)]
+impl NamedService for HealthCheck {
+    const NAME: &'static str = "BONERJAMS";
+}
+
+impl AsRef<str> for HealthCheck {
+    fn as_ref(&self) -> &str {
+        Self::NAME
+    }
+}
+
+#[tonic_rpc::tonic_rpc(cbor)]
 trait KeyValueStore {
     fn get_kv(key: Vec<u8>) -> Vec<u8>;
     /// list all values within a given tree

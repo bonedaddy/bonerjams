@@ -1,13 +1,13 @@
 pub mod client;
 pub mod types;
-
+use tonic_health::{server::HealthReporter, ServingStatus};
 use types::*;
 
 use db::{types::DbKey, DbBatch};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
-use tonic::{transport::Server, Status};
+use tonic::{transport::{Server, Channel}, Status, Request, metadata::MetadataValue};
 
 #[tonic::async_trait]
 impl key_value_store_server::KeyValueStore for Arc<State> {
@@ -122,17 +122,34 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
         Ok(tonic::Response::new(HealthCheck { ok: true }))
     }
 }
-
 pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
     let listener = TcpListenerStream::new(TcpListener::bind(&conf.rpc_endpoint).await?);
     let state = Arc::new(State {
         db: db::Database::new(&conf.db)?,
     });
+    let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+    health_reporter.set_service_status(HealthCheck { ok: true }, ServingStatus::Serving).await;
 
-    Ok(Server::builder()
-        .add_service(key_value_store_server::KeyValueStoreServer::new(state))
+    let server_builder = Server::builder()
+    .add_service(health_service);
+
+    let server_builder = if !conf.rpc_auth_token.is_empty() {
+        server_builder.add_service(key_value_store_server::KeyValueStoreServer::with_interceptor(state, check_auth))
+    } else {
+        server_builder.add_service(key_value_store_server::KeyValueStoreServer::new(state))
+    };
+    Ok(server_builder
         .serve_with_incoming(listener)
         .await?)
+}
+
+fn check_auth(req: Request<()>) -> Result<Request<()>, Status> {
+    let token: MetadataValue<_> = "Bearer some-secret-token".parse().unwrap();
+
+    match req.metadata().get("authorization") {
+        Some(t) if token == t => Ok(req),
+        _ => Err(Status::unauthenticated("No valid auth token")),
+    }
 }
 #[cfg(test)]
 mod test {
@@ -151,6 +168,7 @@ mod test {
                 path: "/tmp/kek2232222.db".to_string(),
                 ..Default::default()
             },
+            rpc_auth_token: "Bearer some-secret-token".to_string(),
             rpc_endpoint: "0.0.0.0:8668".to_string(),
         };
         conf.init_log();
@@ -161,7 +179,7 @@ mod test {
     // starts the server and runs some basic tests
     async fn run_server(conf: config::Configuration) {
         tokio::spawn(async move { start_server(conf).await });
-        let client = client::Client::new("http://127.0.0.1:8668").await.unwrap();
+        let client = client::Client::new("http://127.0.0.1:8668",  "Bearer some-secret-token").await.unwrap();
         client
             .put(
                 "four twenty blaze".as_bytes(),

@@ -6,6 +6,7 @@ use simplelog::*;
 pub struct Configuration {
     pub db: database::DbOpts,
     pub rpc_endpoint: String,
+    pub rpc_auth_token: String,
     pub debug_log: bool,
 }
 
