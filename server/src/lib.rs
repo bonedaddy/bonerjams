@@ -2,6 +2,7 @@ pub mod client;
 pub mod types;
 
 use std::collections::HashMap;
+
 use types::*;
 
 use db::{types::DbKey, DbBatch};
@@ -9,7 +10,6 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{transport::Server, Status};
-use tonic_rpc::tonic_rpc;
 
 #[tonic::async_trait]
 impl key_value_store_server::KeyValueStore for Arc<State> {

@@ -1,11 +1,6 @@
 use std::collections::HashMap;
 
-use db::{types::DbKey, DbBatch};
-use std::sync::Arc;
-use tokio::net::TcpListener;
-use tokio_stream::wrappers::TcpListenerStream;
-use tonic::{transport::Server, Status};
-use tonic_rpc::tonic_rpc;
+use db::types::DbKey;
 
 #[derive(Clone)]
 pub struct State {

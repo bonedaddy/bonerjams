@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use tonic::transport::Channel;
 
 use crate::types::*;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 pub struct BatchPutEntry {
     pub key: Vec<u8>,
@@ -34,24 +33,24 @@ impl Client {
         args: Vec<(Vec<u8>, Vec<BatchPutEntry>)>,
     ) -> Result<()> {
         let mut inner = self.inner.clone();
-        Ok(inner.batch_put(args).await?)
+        inner.batch_put(args).await
     }
     pub async fn put(self: &Arc<Self>, key: &[u8], value: &[u8]) -> Result<()> {
         let mut inner = self.inner.clone();
-        Ok(inner.put(key, value).await?)
+        inner.put(key, value).await
     }
     pub async fn get(self: &Arc<Self>, key: &[u8]) -> Result<Vec<u8>> {
         let mut inner = self.inner.clone();
-        Ok(inner.get(key).await?)
+        inner.get(key).await
     }
     pub async fn list(self: &Arc<Self>, tree: &[u8]) -> Result<Values> {
         let mut inner = self.inner.clone();
-        Ok(inner.list(tree).await?)
+        inner.list(tree).await
     }
     /// blocks until the client, and rpc server is ready
     pub async fn ready(self: &Arc<Self>) -> Result<()> {
         let mut inner = self.inner.clone();
-        Ok(inner.ready().await?)
+        inner.ready().await
     }
 }
 

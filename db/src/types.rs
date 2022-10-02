@@ -7,7 +7,7 @@ pub trait DbKey {
 }
 
 /// various trees and their keys for use with sled
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbTrees<'a> {
     Custom(&'a str),
     Binary(&'a [u8]),
