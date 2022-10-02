@@ -1,8 +1,6 @@
 pub mod client;
 pub mod types;
 
-use std::collections::HashMap;
-
 use types::*;
 
 use db::{types::DbKey, DbBatch};
@@ -139,6 +137,7 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
 #[cfg(test)]
 mod test {
     use config::{database::DbOpts, Configuration};
+    use std::collections::HashMap;
 
     use crate::client::BatchPutEntry;
 
