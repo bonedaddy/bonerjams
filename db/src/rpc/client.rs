@@ -1,15 +1,8 @@
-use super::server::check_auth;
-use super::server::*;
 use super::types::*;
-use crate::{Database, DbTrees};
+
 use anyhow::Result;
 use std::sync::Arc;
-use tonic::{
-    codegen::{InterceptedService, Service},
-    service::interceptor::InterceptorLayer,
-    transport::Channel,
-    Request, Status,
-};
+use tonic::{codegen::InterceptedService, transport::Channel, Request, Status};
 use tower::ServiceBuilder;
 
 use self::auth_service::AuthSvc;

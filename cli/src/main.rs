@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Result};
 use clap::{App, Arg, SubCommand};
 use config::Configuration;
-use tokio;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -63,7 +62,7 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
         ("server", Some(_)) => {
             let conf = get_config(config_file_path)?;
             conf.init_log()?;
-            return Ok(db::rpc::server::start_server(conf).await?);
+            db::rpc::server::start_server(conf).await
         }
         ("client", Some(client_cmd)) => match client_cmd.subcommand() {
             ("put", Some(put_cmd)) => {

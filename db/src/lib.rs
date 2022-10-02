@@ -223,6 +223,13 @@ impl DbBatch {
         self.count += 1;
         Ok(())
     }
+    /// removes raw, untyped bytes
+    pub fn remove_raw(&mut self, key: &[u8]) -> Result<()> {
+        self.batch.remove(key);
+        self.count += 1;
+        Ok(())
+    }
+    /// inserts raw untyped bytes
     pub fn insert_raw(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         self.batch.insert(key, value);
         self.count += 1;

@@ -13,6 +13,17 @@ pub struct Empty;
 
 /// type alias for a vector of key-values
 pub type Values = Vec<KeyValue>;
+/// request object used for batch deletion of keys into the key value store
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct DeleteKVsRequest {
+    /// key (tree) => value (vec![(key, value)])
+    ///
+    /// allow batch insertion of key-value records, grouping the
+    /// records to insert based on the tree they will be inserted them
+    ///
+    /// the hashmap key is a base64 encoded string
+    pub entries: HashMap<String, Vec<Vec<u8>>>,
+}
 
 /// request object used for batch insertion of keys into the key value store
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -67,13 +78,20 @@ impl AsRef<str> for HealthCheck {
 
 #[tonic_rpc::tonic_rpc(cbor)]
 trait KeyValueStore {
+    /// Returns the value matching the given key under the default tree
     fn get_kv(key: Vec<u8>) -> Vec<u8>;
-    /// list all values within a given tree
+    /// List all values within a given tree
     fn list(tree: Vec<u8>) -> Values;
-    /// put a key-value into the default tree
-    /// use put_kvs for batch insertion, or for control
-    /// of the trees which are used
+    /// Inserts a key-value into the default tree
     fn put_kv(key: Vec<u8>, value: Vec<u8>) -> Empty;
+    /// Batch insert multiple key-values under any tree.
+    /// If a non default tree is specified that doesnt exist it is created.
     fn put_kvs(request: PutKVsRequest) -> Empty;
+    /// Removes a single key-value record from the default tree
+    fn delete_kv(key: Vec<u8>) -> Empty;
+    /// Batch remove multiple records under any tree
+    fn delete_kvs(request: DeleteKVsRequest) -> Empty;
+    /// Returns a basic healthcheck that doesn't conform to the
+    /// gRPC health checking service standard
     fn health_check() -> HealthCheck;
 }

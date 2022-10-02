@@ -1,14 +1,10 @@
 use super::types::*;
-use crate::{types::DbKey, DbBatch};
+use crate::{types::DbKey, DbBatch, DbTree};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
-use tonic::{
-    metadata::MetadataValue,
-    transport::{Channel, Server},
-    Request, Status,
-};
-use tonic_health::{server::HealthReporter, ServingStatus};
+use tonic::{metadata::MetadataValue, transport::Server, Request, Status};
+use tonic_health::ServingStatus;
 
 #[tonic::async_trait]
 impl key_value_store_server::KeyValueStore for Arc<State> {
@@ -63,12 +59,7 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
         };
         match db_tree.insert_raw(&key[..], &value[..]) {
             Ok(_) => {
-                if let Err(err) = db_tree.flush_async().await {
-                    return Err(Status::new(tonic::Code::Internal, err.to_string()));
-                }
-                if let Err(err) = db.flush_async().await {
-                    return Err(Status::new(tonic::Code::Internal, err.to_string()));
-                }
+                self.async_flush(db_tree).await?;
                 Ok(tonic::Response::new(Empty {}))
             }
             Err(err) => Err(Status::new(tonic::Code::Internal, err.to_string())),
@@ -104,15 +95,59 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
                     return Err(Status::new(tonic::Code::Internal, err.to_string()));
                 }
             }
-            if let Err(err) = db_tree.apply_batch(&mut batch) {
-                return Err(Status::new(tonic::Code::Internal, err.to_string()));
+            self.apply_and_flush(db_tree, &mut batch).await?;
+        }
+        Ok(tonic::Response::new(Empty {}))
+    }
+    async fn delete_kv(
+        &self,
+        request: tonic::Request<Vec<u8>>,
+    ) -> Result<tonic::Response<Empty>, tonic::Status> {
+        let db = self.db.clone();
+        let key = request.into_inner();
+        let db_tree = match db.open_tree(crate::types::DbTrees::Default) {
+            Ok(tree) => tree,
+            Err(err) => return Err(Status::new(tonic::Code::Internal, err.to_string())),
+        };
+        match db_tree.delete(&key[..]) {
+            Ok(_) => {
+                self.async_flush(db_tree).await?;
+                Ok(tonic::Response::new(Empty {}))
             }
-            if let Err(err) = db_tree.flush_async().await {
-                return Err(Status::new(tonic::Code::Internal, err.to_string()));
+            Err(err) => Err(Status::new(tonic::Code::Internal, err.to_string())),
+        }
+    }
+    async fn delete_kvs(
+        &self,
+        request: tonic::Request<DeleteKVsRequest>,
+    ) -> Result<tonic::Response<Empty>, tonic::Status> {
+        let db = self.db.clone();
+        let mut args = request.into_inner();
+        for (tree, keys) in args.entries.iter_mut() {
+            let tree_name = if tree.is_empty() {
+                vec![]
+            } else {
+                match base64::decode(tree) {
+                    Ok(tree_name) => tree_name,
+                    Err(err) => return Err(Status::new(tonic::Code::Internal, err.to_string())),
+                }
+            };
+            let tree = if tree_name.is_empty() {
+                crate::types::DbTrees::Default
+            } else {
+                crate::types::DbTrees::Binary(&tree_name[..])
+            };
+            let db_tree = match db.open_tree(tree) {
+                Ok(tree) => tree,
+                Err(err) => return Err(Status::new(tonic::Code::Internal, err.to_string())),
+            };
+            let mut batch = DbBatch::new();
+            for key in keys.iter_mut() {
+                if let Err(err) = batch.remove_raw(&key) {
+                    return Err(Status::new(tonic::Code::Internal, err.to_string()));
+                }
             }
-            if let Err(err) = db.flush_async().await {
-                return Err(Status::new(tonic::Code::Internal, err.to_string()));
-            }
+            self.apply_and_flush(db_tree, &mut batch).await?;
         }
         Ok(tonic::Response::new(Empty {}))
     }
@@ -123,6 +158,31 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
         Ok(tonic::Response::new(HealthCheck { ok: true }))
     }
 }
+
+impl State {
+    async fn apply_and_flush(
+        &self,
+        db_tree: Arc<DbTree>,
+        batch: &mut DbBatch,
+    ) -> Result<(), tonic::Status> {
+        if let Err(err) = db_tree.apply_batch(batch) {
+            return Err(Status::new(tonic::Code::Internal, err.to_string()));
+        }
+        self.async_flush(db_tree).await?;
+        Ok(())
+    }
+    async fn async_flush(&self, db_tree: Arc<DbTree>) -> Result<(), tonic::Status> {
+        if let Err(err) = db_tree.flush_async().await {
+            return Err(Status::new(tonic::Code::Internal, err.to_string()));
+        }
+        if let Err(err) = self.db.flush_async().await {
+            return Err(Status::new(tonic::Code::Internal, err.to_string()));
+        }
+        Ok(())
+    }
+}
+
+/// starts the gRPC server providing RPC access to the underlying sled database
 pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
     let listener = TcpListenerStream::new(TcpListener::bind(&conf.rpc.server_url()).await?);
     let state = Arc::new(State {
@@ -158,7 +218,7 @@ mod test {
     use crate::rpc::client;
     use crate::rpc::client::BatchPutEntry;
     use crate::rpc::types::KeyValue;
-    use config::{database::DbOpts, Configuration};
+    use config::{database::DbOpts, Configuration, RPC};
     use std::collections::HashMap;
     #[tokio::test(flavor = "multi_thread")]
     #[allow(unused_must_use)]
@@ -169,7 +229,12 @@ mod test {
                 path: "/tmp/kek2232222.db".to_string(),
                 ..Default::default()
             },
-            ..Default::default()
+            rpc: RPC {
+                port: "8668".to_string(),
+                proto: "http".to_string(),
+                host: "127.0.0.1".to_string(),
+                auth_token: "Bearer some-secret-token".to_string(),
+            },
         };
         conf.init_log();
 
