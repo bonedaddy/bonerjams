@@ -27,7 +27,7 @@ impl Client {
         let client = Arc::new(Client {
             inner: InnerClient {
                 auth_token: auth_token.to_string(),
-                kc: Channel::from_shared(url.to_string())?.connect().await?,
+                kc: Channel::from_shared(url.to_string())?.connect_lazy(),
             },
         });
         Ok(client)
