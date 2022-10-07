@@ -37,6 +37,7 @@ pub struct RPC {
     pub host: String,
     pub port: String,
     pub auth_token: String,
+    pub connection: ConnType,
 }
 
 impl RPC {
@@ -49,6 +50,17 @@ impl RPC {
     }
 }
 
+pub type RpcHost = String;
+pub type RpcPort = String;
+pub type UDSPath = String;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub enum ConnType {
+    HTTP(RpcHost, RpcPort),
+    /// unix domain socket
+    UDS(UDSPath),
+}
+
 impl Default for RPC {
     fn default() -> Self {
         Self {
@@ -56,6 +68,7 @@ impl Default for RPC {
             host: "127.0.0.1".to_string(),
             port: "6969".to_string(),
             auth_token: "".to_string(),
+            connection: ConnType::HTTP("127.0.0.1".to_string() as RpcHost, "6969".to_string() as RpcPort)
         }
     }
 }

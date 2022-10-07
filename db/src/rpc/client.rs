@@ -1,6 +1,6 @@
 use super::types::*;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use std::sync::Arc;
 use tonic::{codegen::InterceptedService, transport::Channel, Request, Status};
 use tower::ServiceBuilder;
@@ -55,6 +55,14 @@ impl Client {
     pub async fn ready(self: &Arc<Self>) -> Result<()> {
         let mut inner = self.inner.clone();
         inner.ready().await
+    }
+    pub async fn exists(self: &Arc<Self>, key: &[u8]) -> Result<bool>{ 
+        let mut inner = self.inner.clone();
+        inner.exists(key).await
+    }
+    pub async fn batch_exists(self: &Arc<Self>, args: Vec<(Vec<u8>, Vec<Vec<u8>>)>) -> Result<ExistKVsResponse>{ 
+        let mut inner = self.inner.clone();
+        inner.batch_exists(args).await
     }
 }
 
@@ -171,6 +179,56 @@ impl InnerClient {
             }
 
             tokio::time::sleep(std::time::Duration::from_millis(250)).await
+        }
+    }
+    pub async fn exists(&mut self, key: &[u8]) -> Result<bool>{ 
+        if self.auth_token.is_empty() {
+            match self.client().exist(key.to_vec()).await {
+                Ok(exists) => {
+                    let inner = exists.into_inner();
+                    return Ok(inner.into())
+                }
+                Err(err) => return Err(anyhow::anyhow!("{:#?}", err)),
+            }
+        } else {
+            match self.authenticated_client().await.exist(key.to_vec()).await {
+                Ok(exists) => {
+                    let inner = exists.into_inner();
+                    return Ok(inner.into())
+                }
+                Err(err) => return Err(anyhow::anyhow!("{:#?}", err)),
+            }
+        }
+    }
+    pub async fn batch_exists(&mut self, args: Vec<(Vec<u8>, Vec<Vec<u8>>)>) -> Result<ExistKVsResponse>{ 
+        let req = ExistsKVsRequest {
+            entries: args
+                .into_iter()
+                .map(|(tree, keys)| {
+                    let tree = base64::encode(tree);
+                    (
+                        tree,
+                        keys
+                    )
+                })
+                .collect(),
+        };
+        if self.auth_token.is_empty() {
+            match self.client().batch_exist(req).await {
+                Ok(res) => {
+                    let inner = res.into_inner();
+                    Ok(inner)
+                },
+                Err(err) => Err(anyhow!("{:#?}", err))
+            }
+        } else {
+            match self.authenticated_client().await.batch_exist(req).await {
+                Ok(res) => {
+                    let inner = res.into_inner();
+                    Ok(inner)
+                },
+                Err(err) => Err(anyhow!("{:#?}", err))
+            }
         }
     }
 }

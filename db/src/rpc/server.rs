@@ -157,6 +157,73 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
     ) -> Result<tonic::Response<HealthCheck>, tonic::Status> {
         Ok(tonic::Response::new(HealthCheck { ok: true }))
     }
+    async fn exist(
+        &self,
+        key: tonic::Request<Vec<u8>>,
+    ) -> Result<tonic::Response<Exists>, tonic::Status> {
+        let db_tree = match self.db.open_tree(DbTrees::Default) {
+            Ok(db_tree) => db_tree,
+            Err(err) => return Err(Status::new(tonic::Code::Internal, err.to_string())),
+        };
+        let exists = match db_tree.contains_key(key.into_inner()) {
+            Ok(response) => {
+               if response {
+                    Exists::Found
+                } else {
+                    Exists::NotFound
+                }
+            }
+            Err(err) => return Err(Status::new(tonic::Code::Internal, err.to_string())),
+        };
+        Ok(tonic::Response::new(exists)) 
+    }
+    async fn batch_exist(
+        &self,
+        key: tonic::Request<ExistsKVsRequest>,
+    ) -> Result<tonic::Response<ExistKVsResponse>, tonic::Status> {
+        let req = key.into_inner();
+        let mut response = ExistKVsResponse {
+            entries: HashMap::with_capacity(req.entries.len()),
+        };
+        req.entries.into_iter().for_each(|(tree, keys)| {
+            let tree_name = if tree.is_empty() {
+                vec![]
+            } else {
+                match base64::decode(&tree) {
+                    Ok(tree_name) => tree_name,
+                    Err(err) => return,
+                }
+            };
+            let db_tree = if tree_name.is_empty() {
+                crate::types::DbTrees::Default
+            } else {
+                crate::types::DbTrees::Binary(&tree_name[..])
+            };
+            let db_tree = match self.db.open_tree(db_tree)  {
+                Ok(db) => db,
+                Err(err) => return,
+            };
+            keys.into_iter().for_each(|key| {
+                let contains = if let Ok(contains) = db_tree.contains_key(&key) {
+                    contains
+                } else {
+                    false
+                };
+                match response.entries.get_mut(&tree) {
+                    Some(entries) => {
+                        entries.insert(base64::encode(key), if contains { Exists::Found } else { Exists::NotFound });
+                    }
+                    None => {
+                        let mut res = HashMap::with_capacity(5);
+                        res.insert(base64::encode(key), if contains { Exists::Found} else { Exists::NotFound});
+                        response.entries.insert(tree.clone(), res);
+                    }
+                }
+            })
+
+        });
+        Ok(tonic::Response::new(response)) 
+    }
 }
 
 impl State {
