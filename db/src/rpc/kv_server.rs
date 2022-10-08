@@ -5,9 +5,9 @@ use crate::{
 };
 use config::ConnType;
 use std::{collections::HashMap, sync::Arc};
+use tokio::net::TcpListener;
 use tokio::net::UnixListener;
-use tokio::{net::TcpListener, sync::mpsc};
-use tokio_stream::wrappers::ReceiverStream;
+
 use tokio_stream::wrappers::TcpListenerStream;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{metadata::MetadataValue, transport::Server, Request, Status};
@@ -198,7 +198,7 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
             } else {
                 match base64::decode(&tree) {
                     Ok(tree_name) => tree_name,
-                    Err(err) => return,
+                    Err(_err) => return,
                 }
             };
             let db_tree = if tree_name.is_empty() {
@@ -208,7 +208,7 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
             };
             let db_tree = match self.db.open_tree(db_tree) {
                 Ok(db) => db,
-                Err(err) => return,
+                Err(_err) => return,
             };
             keys.into_iter().for_each(|key| {
                 let contains = if let Ok(contains) = db_tree.contains_key(&key) {

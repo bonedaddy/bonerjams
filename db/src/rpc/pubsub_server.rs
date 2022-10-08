@@ -1,17 +1,12 @@
 use super::types::*;
-use crate::{
-    types::{DbKey, DbTrees},
-    DbBatch, DbTree,
-};
-use config::ConnType;
-use std::{collections::HashMap, sync::Arc};
-use tokio::net::UnixListener;
-use tokio::{net::TcpListener, sync::mpsc};
+
+use std::sync::Arc;
+
+use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tokio_stream::wrappers::TcpListenerStream;
-use tokio_stream::wrappers::UnixListenerStream;
-use tonic::{metadata::MetadataValue, transport::Server, Request, Status};
-use tonic_health::ServingStatus;
+
+use tonic::Status;
+
 #[tonic::async_trait]
 impl pub_sub_server::PubSub for PubSubState {
     type SubStream = ReceiverStream<super::types::Update>;
@@ -66,7 +61,9 @@ impl pub_sub_server::PubSub for PubSubState {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
+
     #[tokio::test]
     async fn test_bidirectional() {
         let state = PubSubState {

@@ -189,17 +189,17 @@ impl InnerClient {
             match self.client().exist(key.to_vec()).await {
                 Ok(exists) => {
                     let inner = exists.into_inner();
-                    return Ok(inner.into());
+                    Ok(inner.into())
                 }
-                Err(err) => return Err(anyhow::anyhow!("{:#?}", err)),
+                Err(err) => Err(anyhow::anyhow!("{:#?}", err)),
             }
         } else {
             match self.authenticated_client().await.exist(key.to_vec()).await {
                 Ok(exists) => {
                     let inner = exists.into_inner();
-                    return Ok(inner.into());
+                    Ok(inner.into())
                 }
-                Err(err) => return Err(anyhow::anyhow!("{:#?}", err)),
+                Err(err) => Err(anyhow::anyhow!("{:#?}", err)),
             }
         }
     }
