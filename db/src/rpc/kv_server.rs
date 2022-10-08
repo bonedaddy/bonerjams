@@ -373,7 +373,7 @@ mod test {
         let client = client::Client::new(&conf.rpc.client_url(), "Bearer some-secret-token")
             .await
             .unwrap();
-        client.ready().await;
+        client.ready().await.unwrap();
         client
             .put(
                 "four twenty blaze".as_bytes(),
