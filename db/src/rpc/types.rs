@@ -136,6 +136,8 @@ trait KeyValueStore {
     fn delete_kv(key: Vec<u8>) -> Empty;
     /// Batch remove multiple records under any tree
     fn delete_kvs(request: DeleteKVsRequest) -> Empty;
+    fn exist(key: Vec<u8>) -> Exists;
+    fn batch_exist(request: ExistsKVsRequest) -> ExistKVsResponse;
     /// Returns a basic healthcheck that doesn't conform to the
     /// gRPC health checking service standard
     fn health_check() -> HealthCheck;

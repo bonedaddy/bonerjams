@@ -1,10 +1,13 @@
 use super::types::*;
-use crate::{types::DbKey, DbBatch, DbTree};
-use std::sync::Arc;
+use crate::{types::{DbKey, DbTrees}, DbBatch, DbTree};
+use std::{sync::Arc, collections::HashMap};
+use config::ConnType;
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{metadata::MetadataValue, transport::Server, Request, Status};
 use tonic_health::ServingStatus;
+use tokio::net::UnixListener;
+use tokio_stream::wrappers::UnixListenerStream;
 
 #[tonic::async_trait]
 impl key_value_store_server::KeyValueStore for Arc<State> {
@@ -250,8 +253,8 @@ impl State {
 }
 
 /// starts the gRPC server providing RPC access to the underlying sled database
-pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
-    let listener = TcpListenerStream::new(TcpListener::bind(&conf.rpc.server_url()).await?);
+pub async fn 
+start_server(conf: config::Configuration) -> anyhow::Result<()> {
     let state = Arc::new(State {
         db: crate::Database::new(&conf.db)?,
     });
@@ -262,6 +265,7 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
 
     let server_builder = Server::builder().add_service(health_service);
 
+
     let server_builder = if !conf.rpc.auth_token.is_empty() {
         server_builder.add_service(
             key_value_store_server::KeyValueStoreServer::with_interceptor(state, check_auth),
@@ -269,7 +273,19 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
     } else {
         server_builder.add_service(key_value_store_server::KeyValueStoreServer::new(state))
     };
-    Ok(server_builder.serve_with_incoming(listener).await?)
+    match &conf.rpc.connection {
+        ConnType::HTTP(_, _) => {
+            let listener = TcpListenerStream::new(TcpListener::bind(&conf.rpc.server_url()).await?);
+            Ok(server_builder.serve_with_incoming(listener).await?)
+        }
+        ConnType::UDS(path) => {
+
+            tokio::fs::create_dir_all(std::path::Path::new(&path).parent().unwrap()).await?;
+            let uds = UnixListener::bind(path)?;
+            let uds_stream = UnixListenerStream::new(uds);
+            Ok(server_builder.serve_with_incoming(uds_stream).await?)
+        }
+    }
 }
 
 pub fn check_auth(req: Request<()>) -> Result<Request<()>, Status> {
@@ -280,16 +296,39 @@ pub fn check_auth(req: Request<()>) -> Result<Request<()>, Status> {
         _ => Err(Status::unauthenticated("No valid auth token")),
     }
 }
+
+
 #[cfg(test)]
 mod test {
     use crate::rpc::client;
     use crate::rpc::client::BatchPutEntry;
     use crate::rpc::types::KeyValue;
-    use config::{database::DbOpts, Configuration, RPC};
+    use config::{database::DbOpts, Configuration, RPC, ConnType, RpcHost, RpcPort};
     use std::collections::HashMap;
     #[tokio::test(flavor = "multi_thread")]
     #[allow(unused_must_use)]
-    async fn test_run_server() {
+    async fn test_run_server_uds() {
+        let conf = Configuration {
+            db: DbOpts {
+                path: "/tmp/test_server_uds.db".to_string(),
+                ..Default::default()
+            },
+            rpc: RPC {
+                port: "8668".to_string(),
+                proto: "unix".to_string(),
+                host: "127.0.0.1".to_string(),
+                auth_token: "Bearer some-secret-token".to_string(),
+                connection: ConnType::UDS("/tmp/test_server.ipc".to_string()),
+            },
+        };
+        config::init_log(true);
+
+        run_server(conf).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(unused_must_use)]
+    async fn test_run_server_tcp() {
         let conf = Configuration {
             db: DbOpts {
                 path: "/tmp/kek2232222.db".to_string(),
@@ -300,6 +339,7 @@ mod test {
                 proto: "http".to_string(),
                 host: "127.0.0.1".to_string(),
                 auth_token: "Bearer some-secret-token".to_string(),
+                connection: ConnType::HTTP("127.0.0.1".to_string() as RpcHost, "8668".to_string() as RpcPort)
             },
         };
         config::init_log(true);
@@ -309,10 +349,15 @@ mod test {
 
     // starts the server and runs some basic tests
     async fn run_server(conf: config::Configuration) {
-        tokio::spawn(async move { super::start_server(conf).await });
-        let client = client::Client::new("http://127.0.0.1:8668", "Bearer some-secret-token")
+        {
+            let conf = conf.clone();
+            tokio::spawn(async move { super::start_server(conf).await });
+        }
+
+        let client = client::Client::new(&conf.rpc.client_url(), "Bearer some-secret-token")
             .await
             .unwrap();
+        client.ready().await;
         client
             .put(
                 "four twenty blaze".as_bytes(),
@@ -377,5 +422,21 @@ mod test {
                     unsafe { String::from_utf8_unchecked(key_value.value.clone()) }
                 )
             });
+        client.batch_exists(vec![
+            (
+                vec![],
+                vec!["sixety_nine".as_bytes().to_vec()],
+            ),
+            (
+                vec![4, 2, 0],
+                vec!["sixety_nine".as_bytes().to_vec(), "foobarbaz".as_bytes().to_vec()],
+            ),
+        ]).await
+        .unwrap()
+        .entries
+        .iter()
+        .for_each(|exists_tree| {
+            println!("{:#?}", exists_tree)
+        });
     }
 }
