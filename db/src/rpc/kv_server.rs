@@ -1,13 +1,17 @@
 use super::types::*;
-use crate::{types::{DbKey, DbTrees}, DbBatch, DbTree};
-use std::{sync::Arc, collections::HashMap};
+use crate::{
+    types::{DbKey, DbTrees},
+    DbBatch, DbTree,
+};
 use config::ConnType;
-use tokio::net::TcpListener;
+use std::{collections::HashMap, sync::Arc};
+use tokio::net::UnixListener;
+use tokio::{net::TcpListener, sync::mpsc};
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::wrappers::TcpListenerStream;
+use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{metadata::MetadataValue, transport::Server, Request, Status};
 use tonic_health::ServingStatus;
-use tokio::net::UnixListener;
-use tokio_stream::wrappers::UnixListenerStream;
 
 #[tonic::async_trait]
 impl key_value_store_server::KeyValueStore for Arc<State> {
@@ -170,7 +174,7 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
         };
         let exists = match db_tree.contains_key(key.into_inner()) {
             Ok(response) => {
-               if response {
+                if response {
                     Exists::Found
                 } else {
                     Exists::NotFound
@@ -178,7 +182,7 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
             }
             Err(err) => return Err(Status::new(tonic::Code::Internal, err.to_string())),
         };
-        Ok(tonic::Response::new(exists)) 
+        Ok(tonic::Response::new(exists))
     }
     async fn batch_exist(
         &self,
@@ -202,7 +206,7 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
             } else {
                 crate::types::DbTrees::Binary(&tree_name[..])
             };
-            let db_tree = match self.db.open_tree(db_tree)  {
+            let db_tree = match self.db.open_tree(db_tree) {
                 Ok(db) => db,
                 Err(err) => return,
             };
@@ -214,18 +218,31 @@ impl key_value_store_server::KeyValueStore for Arc<State> {
                 };
                 match response.entries.get_mut(&tree) {
                     Some(entries) => {
-                        entries.insert(base64::encode(key), if contains { Exists::Found } else { Exists::NotFound });
+                        entries.insert(
+                            base64::encode(key),
+                            if contains {
+                                Exists::Found
+                            } else {
+                                Exists::NotFound
+                            },
+                        );
                     }
                     None => {
                         let mut res = HashMap::with_capacity(5);
-                        res.insert(base64::encode(key), if contains { Exists::Found} else { Exists::NotFound});
+                        res.insert(
+                            base64::encode(key),
+                            if contains {
+                                Exists::Found
+                            } else {
+                                Exists::NotFound
+                            },
+                        );
                         response.entries.insert(tree.clone(), res);
                     }
                 }
             })
-
         });
-        Ok(tonic::Response::new(response)) 
+        Ok(tonic::Response::new(response))
     }
 }
 
@@ -253,8 +270,7 @@ impl State {
 }
 
 /// starts the gRPC server providing RPC access to the underlying sled database
-pub async fn 
-start_server(conf: config::Configuration) -> anyhow::Result<()> {
+pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
     let state = Arc::new(State {
         db: crate::Database::new(&conf.db)?,
     });
@@ -264,7 +280,6 @@ start_server(conf: config::Configuration) -> anyhow::Result<()> {
         .await;
 
     let server_builder = Server::builder().add_service(health_service);
-
 
     let server_builder = if !conf.rpc.auth_token.is_empty() {
         server_builder.add_service(
@@ -279,7 +294,6 @@ start_server(conf: config::Configuration) -> anyhow::Result<()> {
             Ok(server_builder.serve_with_incoming(listener).await?)
         }
         ConnType::UDS(path) => {
-
             tokio::fs::create_dir_all(std::path::Path::new(&path).parent().unwrap()).await?;
             let uds = UnixListener::bind(path)?;
             let uds_stream = UnixListenerStream::new(uds);
@@ -297,13 +311,12 @@ pub fn check_auth(req: Request<()>) -> Result<Request<()>, Status> {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use crate::rpc::client;
     use crate::rpc::client::BatchPutEntry;
     use crate::rpc::types::KeyValue;
-    use config::{database::DbOpts, Configuration, RPC, ConnType, RpcHost, RpcPort};
+    use config::{database::DbOpts, Configuration, ConnType, RpcHost, RpcPort, RPC};
     use std::collections::HashMap;
     #[tokio::test(flavor = "multi_thread")]
     #[allow(unused_must_use)]
@@ -339,7 +352,10 @@ mod test {
                 proto: "http".to_string(),
                 host: "127.0.0.1".to_string(),
                 auth_token: "Bearer some-secret-token".to_string(),
-                connection: ConnType::HTTP("127.0.0.1".to_string() as RpcHost, "8668".to_string() as RpcPort)
+                connection: ConnType::HTTP(
+                    "127.0.0.1".to_string() as RpcHost,
+                    "8668".to_string() as RpcPort,
+                ),
             },
         };
         config::init_log(true);
@@ -422,21 +438,21 @@ mod test {
                     unsafe { String::from_utf8_unchecked(key_value.value.clone()) }
                 )
             });
-        client.batch_exists(vec![
-            (
-                vec![],
-                vec!["sixety_nine".as_bytes().to_vec()],
-            ),
-            (
-                vec![4, 2, 0],
-                vec!["sixety_nine".as_bytes().to_vec(), "foobarbaz".as_bytes().to_vec()],
-            ),
-        ]).await
-        .unwrap()
-        .entries
-        .iter()
-        .for_each(|exists_tree| {
-            println!("{:#?}", exists_tree)
-        });
+        client
+            .batch_exists(vec![
+                (vec![], vec!["sixety_nine".as_bytes().to_vec()]),
+                (
+                    vec![4, 2, 0],
+                    vec![
+                        "sixety_nine".as_bytes().to_vec(),
+                        "foobarbaz".as_bytes().to_vec(),
+                    ],
+                ),
+            ])
+            .await
+            .unwrap()
+            .entries
+            .iter()
+            .for_each(|exists_tree| println!("{:#?}", exists_tree));
     }
 }

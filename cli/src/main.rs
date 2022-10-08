@@ -62,7 +62,7 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
         ("server", Some(_)) => {
             let conf = get_config(config_file_path)?;
             config::init_log(false)?;
-            db::rpc::server::start_server(conf).await
+            db::rpc::kv_server::start_server(conf).await
         }
         ("client", Some(client_cmd)) => match client_cmd.subcommand() {
             ("put", Some(put_cmd)) => {

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, hash::Hash};
 
 use crate::types::DbKey;
+use tokio::sync::mpsc;
 use tonic::transport::NamedService;
 
 #[derive(Clone)]
@@ -22,7 +23,9 @@ pub enum Exists {
 }
 
 impl Exists {
-    pub fn bool(&self) -> bool { self.into() }
+    pub fn bool(&self) -> bool {
+        self.into()
+    }
 }
 
 impl From<Exists> for bool {
@@ -30,7 +33,6 @@ impl From<Exists> for bool {
         (&input).into()
     }
 }
-
 
 impl From<&Exists> for bool {
     fn from(input: &Exists) -> Self {
@@ -141,4 +143,27 @@ trait KeyValueStore {
     /// Returns a basic healthcheck that doesn't conform to the
     /// gRPC health checking service standard
     fn health_check() -> HealthCheck;
+}
+
+use std::sync::{Arc, Mutex};
+pub type Update = Result<(String, String), tonic::Status>;
+
+/// a basis state object to be used with the reference pubsub implementation
+#[derive(Debug)]
+pub struct PubSubState {
+    pub data: Arc<Mutex<HashMap<String, String>>>,
+    pub subscribers: Arc<Mutex<HashMap<String, Vec<mpsc::Sender<Update>>>>>,
+}
+
+/// Provides a trait that can be used to implement extremely basic publish/subscribe patterns.
+/// Out of the box support is provided for channels identifier with strings, that send values of type
+/// string, using the `PubSubState`.
+#[tonic_rpc::tonic_rpc(cbor)]
+trait PubSub {
+    #[server_streaming]
+    #[client_streaming]
+    /// opens up a streaming connection that will receiving incoming messages on `channel`
+    fn sub(channel: String) -> (String, String);
+    /// publishes the given value on the given channel
+    fn publish(channel: String, value: String) -> ();
 }

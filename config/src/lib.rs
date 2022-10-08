@@ -68,7 +68,10 @@ impl Default for RPC {
             host: "127.0.0.1".to_string(),
             port: "6969".to_string(),
             auth_token: "".to_string(),
-            connection: ConnType::HTTP("127.0.0.1".to_string() as RpcHost, "6969".to_string() as RpcPort)
+            connection: ConnType::HTTP(
+                "127.0.0.1".to_string() as RpcHost,
+                "6969".to_string() as RpcPort,
+            ),
         }
     }
 }
