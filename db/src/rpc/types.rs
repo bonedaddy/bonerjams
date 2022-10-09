@@ -146,6 +146,9 @@ trait KeyValueStore {
 }
 
 use std::sync::{Arc, Mutex};
+
+/// an update sent over pubsub streams, with base64 encoded
+/// keys and values
 pub type Update = Result<(String, String), tonic::Status>;
 
 /// a basis state object to be used with the reference pubsub implementation
