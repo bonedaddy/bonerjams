@@ -33,20 +33,19 @@ impl Configuration {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct RPC {
-    pub proto: String,
-    pub host: String,
-    pub port: String,
     pub auth_token: String,
     pub connection: ConnType,
+    pub tls_cert: String,
+    pub tls_key: String,
 }
 
 impl RPC {
     /// returns the url used by the server when establishing the listener
     pub fn server_url(&self) -> String {
-        format!("{}:{}", self.host, self.port)
+        self.connection.to_string()
     }
     pub fn client_url(&self) -> String {
-        format!("{}://{}:{}", self.proto, self.host, self.port)
+        self.connection.to_client_url()
     }
 }
 
@@ -56,22 +55,54 @@ pub type UDSPath = String;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum ConnType {
+    HTTPS(RpcHost, RpcPort),
     HTTP(RpcHost, RpcPort),
     /// unix domain socket
     UDS(UDSPath),
 }
 
+/// the return value of `to_string` can be used for the server listening address
+impl ToString for ConnType {
+    fn to_string(&self) -> String {
+        match self {
+            ConnType::HTTP(host, port) | ConnType::HTTPS(host, port) => {
+                format!("{}:{}", host, port)
+            }
+            ConnType::UDS(path) => {
+                format!("{}", path)
+            }
+        }
+    }
+}
+
+
+impl ConnType {
+    /// used to convert a server url into a client url by prefixing the protocol
+    pub fn to_client_url(&self) -> String {
+        match self {
+            ConnType::HTTP { .. } => {
+                format!("http://{}", self.to_string())
+            }
+            ConnType::HTTPS { .. } => {
+                format!("https://{}", self.to_string())
+            }
+            ConnType::UDS{ .. } => {
+                format!("unix://{}", self.to_string())
+            }
+        }
+    }
+}
+
 impl Default for RPC {
     fn default() -> Self {
         Self {
-            proto: "http".to_string(),
-            host: "127.0.0.1".to_string(),
-            port: "6969".to_string(),
             auth_token: "".to_string(),
             connection: ConnType::HTTP(
                 "127.0.0.1".to_string() as RpcHost,
                 "6969".to_string() as RpcPort,
             ),
+            tls_cert: "".to_string(),
+            tls_key: "".to_string()
         }
     }
 }

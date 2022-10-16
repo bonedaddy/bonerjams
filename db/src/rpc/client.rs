@@ -1,10 +1,13 @@
-use super::types::*;
+use super::{types::*, tls::SelfSignedCert, string_reader::StringReader};
 
 use anyhow::{anyhow, Result};
-use std::sync::Arc;
-use tonic::{codegen::InterceptedService, transport::Channel, Request, Status};
+use config::RPC;
+use hyper_rustls::HttpsConnector;
+use std::{sync::Arc, str::FromStr};
+use tonic::{codegen::InterceptedService, transport::{Channel, ClientTlsConfig, Identity, Certificate}, Request, Status};
 use tower::ServiceBuilder;
-
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+use hyper::{client::HttpConnector, Uri};
 use self::auth_service::AuthSvc;
 
 pub struct BatchPutEntry {
@@ -14,21 +17,48 @@ pub struct BatchPutEntry {
 
 #[derive(Clone)]
 struct InnerClient {
+    rpc_conf: RPC,
     auth_token: String,
     kc: Channel,
 }
 
 pub struct Client {
+    conf: config::Configuration,
     inner: InnerClient,
 }
 
 impl Client {
-    pub async fn new(url: &str, auth_token: &str) -> Result<Arc<Client>> {
+    pub async fn new(conf: &config::Configuration, auth_token: &str) -> Result<Arc<Client>> {
         let client = Arc::new(Client {
             inner: InnerClient {
                 auth_token: auth_token.to_string(),
-                kc: Channel::from_shared(url.to_string())?.connect_lazy(),
+                kc: Channel::from_shared(conf.rpc.client_url())?.connect_lazy(),
+                rpc_conf: conf.rpc.clone(),
             },
+            conf: conf.clone(),
+        });
+        Ok(client)
+    }
+    pub async fn new_tls(conf: &config::Configuration, auth_token: &str) -> Result<Arc<Client>> {
+
+        let tls_cert_info: SelfSignedCert = (&conf.rpc).into();
+        let client_url = match Channel::from_shared(conf.rpc.client_url()) {
+            Ok(client_url) => client_url,
+            Err(err) => return Err(anyhow!("failed to get client url {:#?}", err))
+        };
+        let client_url = match client_url.tls_config(
+                ClientTlsConfig::new().domain_name("localhost")
+            ) {
+                Ok(client) => client,
+                Err(err) => return Err(anyhow!("Failed to tls configuration {:#?}", err))
+            };
+        let client = Arc::new(Client {
+            inner: InnerClient {
+                auth_token: auth_token.to_string(),
+                kc: client_url.connect_lazy(),
+                rpc_conf: conf.rpc.clone()
+            },
+            conf: conf.clone(),
         });
         Ok(client)
     }
@@ -87,6 +117,23 @@ impl InnerClient {
     fn client(&mut self) -> key_value_store_client::KeyValueStoreClient<Channel> {
         key_value_store_client::KeyValueStoreClient::new(self.kc.clone())
     }
+    async fn authenticated_tls_client(
+        &mut self, conf: &config::RPC
+    ) -> key_value_store_client::KeyValueStoreClient<
+        InterceptedService<AuthSvc, fn(req: Request<()>) -> Result<Request<()>, Status>>,
+    > {
+        key_value_store_client::KeyValueStoreClient::new(
+            ServiceBuilder::new()
+                .layer(tonic::service::interceptor(
+                    intercept as fn(req: Request<()>) -> Result<Request<()>, Status>,
+                ))
+                .layer_fn(auth_service::AuthSvc::new)
+                .service(self.kc.clone()),
+        )
+    }
+    fn client_tls(&mut self, conf: &config::RPC) -> Result<key_value_store_client::KeyValueStoreClient<Channel>> {
+        Ok(key_value_store_client::KeyValueStoreClient::new(self.kc.clone()))
+    }
     /// args maps trees -> keyvalues
     async fn batch_put(&mut self, args: Vec<(Vec<u8>, Vec<BatchPutEntry>)>) -> Result<()> {
         let req = PutKVsRequest {
@@ -108,75 +155,127 @@ impl InnerClient {
                 .collect(),
         };
         if self.auth_token.is_empty() {
-            self.client().put_kvs(req).await?;
+            if !self.rpc_conf.tls_cert.is_empty() && !self.rpc_conf.tls_key.is_empty() {
+                self.client_tls(&self.rpc_conf.clone())?.put_kvs(req).await?;
+            } else {
+                self.client().put_kvs(req).await?;
+            }
         } else {
-            self.authenticated_client().await.put_kvs(req).await?;
+            if !self.rpc_conf.tls_cert.is_empty() && !self.rpc_conf.tls_key.is_empty() {
+                self.authenticated_tls_client(&self.rpc_conf.clone()).await.put_kvs(req).await?;
+            } else {
+                self.authenticated_client().await.put_kvs(req).await?;
+            }
         }
 
         Ok(())
     }
     async fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         if self.auth_token.is_empty() {
-            self.client().put_kv((key.to_vec(), value.to_vec())).await?;
+            if !self.rpc_conf.tls_cert.is_empty() && !self.rpc_conf.tls_key.is_empty() {
+                self.client_tls(&self.rpc_conf.clone())?.put_kv((key.to_vec(),value.to_vec())).await?;
+            } else {
+                self.client().put_kv((key.to_vec(),value.to_vec())).await?;
+            }
         } else {
-            self.authenticated_client()
-                .await
-                .put_kv((key.to_vec(), value.to_vec()))
-                .await?;
+            if !self.rpc_conf.tls_cert.is_empty() && !self.rpc_conf.tls_key.is_empty() {
+                self.authenticated_tls_client(&self.rpc_conf.clone()).await.put_kv((key.to_vec(),value.to_vec())).await?;
+            } else {
+                self.authenticated_client().await.put_kv((key.to_vec(),value.to_vec())).await?;
+            }
         }
         Ok(())
     }
     async fn get(&mut self, key: &[u8]) -> Result<Vec<u8>> {
         if self.auth_token.is_empty() {
-            Ok(self.client().get_kv(key.to_vec()).await?.into_inner())
+            if !self.rpc_conf.tls_cert.is_empty() && !self.rpc_conf.tls_key.is_empty() {
+                Ok(self.client_tls(&self.rpc_conf.clone())?.get_kv(key.to_vec()).await?.into_inner())
+            } else {
+                Ok(self.client().get_kv(key.to_vec()).await?.into_inner())
+            }
         } else {
-            Ok(self
-                .authenticated_client()
-                .await
-                .get_kv(key.to_vec())
-                .await?
-                .into_inner())
+            if !self.rpc_conf.tls_cert.is_empty() && !self.rpc_conf.tls_key.is_empty() {
+                Ok(self.authenticated_tls_client(&self.rpc_conf.clone()).await.get_kv(key.to_vec()).await?.into_inner())
+            } else {
+                Ok(self.authenticated_client().await.get_kv(key.to_vec()).await?.into_inner())
+            }
         }
     }
     async fn list(&mut self, tree: &[u8]) -> Result<Values> {
         if self.auth_token.is_empty() {
-            Ok(self.client().list(tree.to_vec()).await?.into_inner())
+            if !self.rpc_conf.tls_cert.is_empty() && !self.rpc_conf.tls_key.is_empty() {
+                Ok(self.client_tls(&self.rpc_conf.clone())?.list(tree.to_vec()).await?.into_inner())
+            } else {
+                Ok(self.client().list(tree.to_vec()).await?.into_inner())
+            }
         } else {
-            Ok(self
-                .authenticated_client()
-                .await
-                .list(tree.to_vec())
-                .await?
-                .into_inner())
+            if !self.rpc_conf.tls_cert.is_empty() && !self.rpc_conf.tls_key.is_empty() {
+                Ok(self.authenticated_tls_client(&self.rpc_conf.clone()).await.list(tree.to_vec()).await?.into_inner())
+            } else {
+                Ok(self.authenticated_client().await.list(tree.to_vec()).await?.into_inner())
+            }
         }
     }
     /// blocks until the client, and rpc server is ready
     async fn ready(&mut self) -> Result<()> {
         loop {
             if self.auth_token.is_empty() {
-                match self.client().health_check(()).await {
-                    Ok(ok) => {
-                        if !ok.into_inner().ok {
-                            log::warn!("health check not ok, waiting...");
-                        } else {
-                            return Ok(());
+
+                if !self.rpc_conf.tls_cert.is_empty() && !self.rpc_conf.tls_key.is_empty() {
+                    match self.client_tls(&self.rpc_conf.clone())?.health_check(()).await {
+                        Ok(ok) => {
+                            if !ok.into_inner().ok {
+                                log::warn!("health check not ok, waiting...");
+                            } else {
+                                return Ok(());
+                            }
+                        }
+                        Err(err) => {
+                            log::warn!("client not ready, waiting... {:#?}", err);
                         }
                     }
-                    Err(err) => {
-                        log::warn!("client not ready, waiting... {:#?}", err);
+                } else {
+                    match self.client().health_check(()).await {
+                        Ok(ok) => {
+                            if !ok.into_inner().ok {
+                                log::warn!("health check not ok, waiting...");
+                            } else {
+                                return Ok(());
+                            }
+                        }
+                        Err(err) => {
+                            log::warn!("client not ready, waiting... {:#?}", err);
+                        }
                     }
                 }
+
+
             } else {
-                match self.authenticated_client().await.health_check(()).await {
-                    Ok(ok) => {
-                        if !ok.into_inner().ok {
-                            log::warn!("health check not ok, waiting...");
-                        } else {
-                            return Ok(());
+                if !self.rpc_conf.tls_cert.is_empty() && !self.rpc_conf.tls_key.is_empty() {
+                    match self.authenticated_tls_client(&self.rpc_conf.clone()).await.health_check(()).await {
+                        Ok(ok) => {
+                            if !ok.into_inner().ok {
+                                log::warn!("health check not ok, waiting...");
+                            } else {
+                                return Ok(());
+                            }
+                        }
+                        Err(err) => {
+                            log::warn!("client not ready, waiting... {:#?}", err);
                         }
                     }
-                    Err(err) => {
-                        log::warn!("client not ready, waiting... {:#?}", err);
+                } else {
+                    match self.authenticated_client().await.health_check(()).await {
+                        Ok(ok) => {
+                            if !ok.into_inner().ok {
+                                log::warn!("health check not ok, waiting...");
+                            } else {
+                                return Ok(());
+                            }
+                        }
+                        Err(err) => {
+                            log::warn!("client not ready, waiting... {:#?}", err);
+                        }
                     }
                 }
             }
@@ -185,7 +284,15 @@ impl InnerClient {
         }
     }
     pub async fn exists(&mut self, key: &[u8]) -> Result<bool> {
-        if self.auth_token.is_empty() {
+        if !self.rpc_conf.tls_cert.is_empty() && !self.rpc_conf.tls_key.is_empty() {
+            match self.client_tls(&self.rpc_conf.clone())?.exist(key.to_vec()).await {
+                Ok(exists) => {
+                    let inner = exists.into_inner();
+                    Ok(inner.into())
+                }
+                Err(err) => Err(anyhow::anyhow!("{:#?}", err))
+            }
+        } else if self.auth_token.is_empty() {
             match self.client().exist(key.to_vec()).await {
                 Ok(exists) => {
                     let inner = exists.into_inner();
@@ -216,7 +323,15 @@ impl InnerClient {
                 })
                 .collect(),
         };
-        if self.auth_token.is_empty() {
+        if !self.rpc_conf.tls_cert.is_empty() && !self.rpc_conf.tls_key.is_empty() {
+            match self.client_tls(&self.rpc_conf.clone())?.batch_exist(req).await {
+                Ok(exists) => {
+                    let inner = exists.into_inner();
+                    Ok(inner.into())
+                }
+                Err(err) => Err(anyhow::anyhow!("{:#?}", err))
+            }
+        } else if self.auth_token.is_empty() {
             match self.client().batch_exist(req).await {
                 Ok(res) => {
                     let inner = res.into_inner();
