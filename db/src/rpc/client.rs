@@ -1,27 +1,18 @@
 use super::tonic_openssl::CustomChannel;
 
-
-use super::{types::*};
+use super::types::*;
 use anyhow::{anyhow, Result};
 use config::RPC;
-use hyper::{
-    header::{HeaderValue},
-};
-use hyper::{Uri};
-
-
-
+use hyper::header::HeaderValue;
+use hyper::Uri;
 
 use std::{str::FromStr, sync::Arc};
 
 use tonic::body::BoxBody;
 
-
 use tower::Service;
 use tower::ServiceBuilder;
-use tower_http::{
-    set_header::SetRequestHeaderLayer,
-};
+use tower_http::set_header::SetRequestHeaderLayer;
 pub struct BatchPutEntry {
     pub key: Vec<u8>,
     pub value: Vec<u8>,

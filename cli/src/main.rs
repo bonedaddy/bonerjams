@@ -28,14 +28,23 @@ async fn main() -> Result<()> {
         .subcommand(
             SubCommand::with_name("config")
                 .about("config management commands")
-                .subcommands(vec![SubCommand::with_name("new").arg(
-                    Arg::with_name("config")
-                        .short("c")
-                        .long("config")
-                        .value_name("FILE")
-                        .help("sets the config file")
-                        .takes_value(true),
-                )]),
+                .subcommands(vec![
+                    SubCommand::with_name("new").arg(
+                        Arg::with_name("config")
+                            .short("c")
+                            .long("config")
+                            .value_name("FILE")
+                            .help("sets the config file")
+                            .takes_value(true),
+                    ),
+                    SubCommand::with_name("new-certificate").arg(
+                        Arg::with_name("hosts")
+                            .long("hosts")
+                            .help("the hosts to create the certificate for")
+                            .min_values(1)
+                            .required(true),
+                    ),
+                ]),
         )
         .subcommand(SubCommand::with_name("server").about("run the bonerjams kv server"))
         .subcommand(
@@ -45,7 +54,29 @@ async fn main() -> Result<()> {
                     SubCommand::with_name("put")
                         .arg(key_flag.clone())
                         .arg(value_flag.clone()),
-                    SubCommand::with_name("get").arg(key_flag.clone()),
+                    SubCommand::with_name("get")
+                        .arg(key_flag.clone())
+                        .arg(
+                            Arg::with_name("validitiy-period")
+                                .long("validity-period")
+                                .help("the number of days  the  cert is validate for")
+                                .takes_value(true)
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::with_name("is-ca")
+                                .long("is-ca")
+                                .help("if present, marks the certificate as a ca certificate")
+                                .takes_value(false)
+                                .required(false),
+                        )
+                        .arg(
+                            Arg::with_name("rsa")
+                                .long("rsa")
+                                .help("if present generate an rsa certificate, otherwise secp256r1")
+                                .takes_value(false)
+                                .required(false),
+                        ),
                 ]),
         )
         .get_matches();
@@ -57,12 +88,35 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
     match matches.subcommand() {
         ("config", Some(conf_cmd)) => match conf_cmd.subcommand() {
             ("new", Some(_)) => Ok(Configuration::default().save(config_file_path, false)?),
+            ("new-grpc-certificate", Some(new_cert)) => {
+                let hosts = new_cert
+                    .values_of("hosts")
+                    .unwrap()
+                    .collect::<Vec<_>>()
+                    .iter()
+                    .map(|host| host.to_string())
+                    .collect::<Vec<_>>();
+
+                let cert = db::rpc::self_signed_cert::SelfSignedCert::new(
+                    &hosts[..],
+                    matches
+                        .value_of("validity-period-days")
+                        .unwrap()
+                        .parse()
+                        .unwrap(),
+                    matches.is_present("rsa"),
+                    matches.is_present("is-ca"),
+                )?;
+                println!("base64 key {}", cert.base64_key);
+                println!("base64 cert {}", cert.base64_cert);
+                Ok(())
+            }
             _ => invalid_subcommand("config"),
         },
         ("server", Some(_)) => {
             let conf = get_config(config_file_path)?;
             config::init_log(false)?;
-            db::rpc::kv_server::start_server(conf).await
+            db::rpc::start_server(conf).await
         }
         ("client", Some(client_cmd)) => match client_cmd.subcommand() {
             ("put", Some(put_cmd)) => {

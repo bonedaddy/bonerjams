@@ -68,9 +68,7 @@ impl ToString for ConnType {
             ConnType::HTTP(host, port) | ConnType::HTTPS(host, port) => {
                 format!("{}:{}", host, port)
             }
-            ConnType::UDS(path) => {
-                path.to_string()
-            }
+            ConnType::UDS(path) => path.to_string(),
         }
     }
 }
