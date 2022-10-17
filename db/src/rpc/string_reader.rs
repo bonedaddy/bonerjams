@@ -27,7 +27,7 @@ pub struct StringReader<'a> {
 }
 
 impl<'a> StringReader<'a> {
-	/// Wrap a string in a `StringReader`, which implements `std::io::Read`.
+    /// Wrap a string in a `StringReader`, which implements `std::io::Read`.
     pub fn new(data: &'a str) -> Self {
         Self {
             iter: data.as_bytes().iter(),

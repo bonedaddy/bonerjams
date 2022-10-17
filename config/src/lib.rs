@@ -75,7 +75,6 @@ impl ToString for ConnType {
     }
 }
 
-
 impl ConnType {
     /// used to convert a server url into a client url by prefixing the protocol
     pub fn to_client_url(&self) -> String {
@@ -86,7 +85,7 @@ impl ConnType {
             ConnType::HTTPS { .. } => {
                 format!("https://{}", self.to_string())
             }
-            ConnType::UDS{ .. } => {
+            ConnType::UDS { .. } => {
                 format!("unix://{}", self.to_string())
             }
         }
@@ -102,7 +101,7 @@ impl Default for RPC {
                 "6969".to_string() as RpcPort,
             ),
             tls_cert: "".to_string(),
-            tls_key: "".to_string()
+            tls_key: "".to_string(),
         }
     }
 }

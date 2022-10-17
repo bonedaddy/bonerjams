@@ -1,19 +1,26 @@
-use super::{types::*, self_signed_cert::SelfSignedCert, string_reader::StringReader};
+use super::{self_signed_cert::SelfSignedCert, string_reader::StringReader, types::*};
 use crate::{
     types::{DbKey, DbTrees},
     DbBatch, DbTree,
 };
-use hyper::server::conn::Http;
 use config::ConnType;
-use tokio_rustls::{rustls::{ServerConfig, PrivateKey}, TlsAcceptor};
+use hyper::server::conn::Http;
 use std::{collections::HashMap, sync::Arc};
 use tokio::net::TcpListener;
 use tokio::net::UnixListener;
+use tokio_rustls::{
+    rustls::{PrivateKey, ServerConfig},
+    TlsAcceptor,
+};
 use tokio_stream::wrappers::TcpListenerStream;
 use tokio_stream::wrappers::UnixListenerStream;
-use tonic::{metadata::MetadataValue, transport::{Server, ServerTlsConfig, Identity, Certificate}, Request, Status};
+use tonic::{
+    metadata::MetadataValue,
+    transport::{Certificate, Identity, Server, ServerTlsConfig},
+    Request, Status,
+};
+use tonic::{Response, Streaming};
 use tonic_health::ServingStatus;
-use tonic::{Response,  Streaming};
 use tower_http::ServiceBuilderExt;
 #[tonic::async_trait]
 impl key_value_store_server::KeyValueStore for Arc<State> {
@@ -281,32 +288,34 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
         .set_service_status(HealthCheck { ok: true }, ServingStatus::Serving)
         .await;
 
-
     match &conf.rpc.connection {
         ConnType::HTTPS(_, _) => {
             let tls_cert_info: SelfSignedCert = (&conf.rpc).into();
             log::info!("loading certs");
             let identity = Identity::from_pem(tls_cert_info.cert()?, tls_cert_info.key()?);
 
-
             let server_builder = Server::builder()
-            .tls_config(ServerTlsConfig::new().identity(identity))?
-            .add_service(health_service);
-
-
+                .tls_config(ServerTlsConfig::new().identity(identity))?
+                .add_service(health_service);
 
             let server_builder = if !conf.rpc.auth_token.is_empty() {
                 let auth_token = Arc::new(conf.rpc.auth_token.clone());
                 server_builder.add_service(
-                    key_value_store_server::KeyValueStoreServer::with_interceptor(state, move |req: Request<()>| -> Result<Request<()>, Status> {
-                        println!("checking auth token {}", auth_token);
-                        let token: MetadataValue<_> = auth_token.parse().unwrap();
-            
-                        match req.metadata().get("authorization") {
-                            Some(t) if token == t => Ok(req),
-                            _ => Err(Status::unauthenticated("No valid auth token")),
-                        }
-                    }),
+                    key_value_store_server::KeyValueStoreServer::with_interceptor(
+                        state,
+                        move |req: Request<()>| -> Result<Request<()>, Status> {
+                            println!("checking auth token {}", auth_token);
+                            let token: MetadataValue<_> = auth_token.parse().unwrap();
+
+                            let got_auth = req.metadata().get("authorization");
+                            println!("got auth {:#?}", got_auth);
+
+                            match got_auth {
+                                Some(t) if token == t => Ok(req),
+                                _ => Err(Status::unauthenticated("No valid auth token")),
+                            }
+                        },
+                    ),
                 )
             } else {
                 server_builder.add_service(key_value_store_server::KeyValueStoreServer::new(state))
@@ -316,20 +325,23 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
             Ok(server_builder.serve_with_incoming(listener).await?)
         }
         ConnType::HTTP(_, _) => {
-            let server_builder = Server::builder()
-            .add_service(health_service);
+            let server_builder = Server::builder().add_service(health_service);
 
             let server_builder = if !conf.rpc.auth_token.is_empty() {
                 let auth_token = Arc::new(conf.rpc.auth_token.clone());
                 server_builder.add_service(
-                    key_value_store_server::KeyValueStoreServer::with_interceptor(state, move |req: Request<()>| -> Result<Request<()>, Status> {
-                        let token: MetadataValue<_> = auth_token.parse().unwrap();
-            
-                        match req.metadata().get("authorization") {
-                            Some(t) if token == t => Ok(req),
-                            _ => Err(Status::unauthenticated("No valid auth token")),
-                        }
-                    }),
+                    key_value_store_server::KeyValueStoreServer::with_interceptor(
+                        state,
+                        move |req: Request<()>| -> Result<Request<()>, Status> {
+                            let token: MetadataValue<_> = auth_token.parse().unwrap();
+                            println!("got token {:#?}", token);
+
+                            match req.metadata().get("authorization") {
+                                Some(t) if token == t => Ok(req),
+                                _ => Err(Status::unauthenticated("No valid auth token")),
+                            }
+                        },
+                    ),
                 )
             } else {
                 server_builder.add_service(key_value_store_server::KeyValueStoreServer::new(state))
@@ -338,20 +350,22 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
             Ok(server_builder.serve_with_incoming(listener).await?)
         }
         ConnType::UDS(path) => {
-            let server_builder = Server::builder()
-            .add_service(health_service);
+            let server_builder = Server::builder().add_service(health_service);
 
             let server_builder = if conf.rpc.auth_token.is_empty() {
                 let auth_token = Arc::new(conf.rpc.auth_token.clone());
                 server_builder.add_service(
-                    key_value_store_server::KeyValueStoreServer::with_interceptor(state, move |req: Request<()>| -> Result<Request<()>, Status> {
-                        let token: MetadataValue<_> = auth_token.parse().unwrap();
-            
-                        match req.metadata().get("authorization") {
-                            Some(t) if token == t => Ok(req),
-                            _ => Err(Status::unauthenticated("No valid auth token")),
-                        }
-                    }),
+                    key_value_store_server::KeyValueStoreServer::with_interceptor(
+                        state,
+                        move |req: Request<()>| -> Result<Request<()>, Status> {
+                            let token: MetadataValue<_> = auth_token.parse().unwrap();
+                            println!("got token {:#?}", token);
+                            match req.metadata().get("authorization") {
+                                Some(t) if token == t => Ok(req),
+                                _ => Err(Status::unauthenticated("No valid auth token")),
+                            }
+                        },
+                    ),
                 )
             } else {
                 server_builder.add_service(key_value_store_server::KeyValueStoreServer::new(state))
@@ -364,7 +378,6 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
     }
 }
 
-
 #[derive(Debug)]
 pub struct ConnInfo {
     pub addr: std::net::SocketAddr,
@@ -373,9 +386,9 @@ pub struct ConnInfo {
 
 #[cfg(test)]
 mod test {
-    use crate::rpc::{client, self_signed_cert::SelfSignedCert};
     use crate::rpc::client::BatchPutEntry;
     use crate::rpc::types::KeyValue;
+    use crate::rpc::{client, self_signed_cert::SelfSignedCert};
     use config::{database::DbOpts, Configuration, ConnType, RpcHost, RpcPort, RPC};
     use std::collections::HashMap;
     #[tokio::test(flavor = "multi_thread")]
@@ -421,23 +434,26 @@ mod test {
     #[tokio::test(flavor = "multi_thread")]
     #[allow(unused_must_use)]
     async fn test_run_server_tcp_tls() {
-
         /// tls works but authentication is broken
-
         // https://github.com/LucioFranco/tonic-openssl/blob/master/example/src/server.rs
         let self_signed = super::super::self_signed_cert::SelfSignedCert::new(
-            &["https://localhost:8668".to_string(), "localhost".to_string(), "localhost:8668".to_string()],
+            &[
+                "https://localhost:8668".to_string(),
+                "localhost".to_string(),
+                "localhost:8668".to_string(),
+            ],
             1000,
             false,
             false,
-        ).unwrap();
+        )
+        .unwrap();
         let mut conf = Configuration {
             db: DbOpts {
                 path: "/tmp/kek2232222.db".to_string(),
                 ..Default::default()
             },
             rpc: RPC {
-                auth_token: "".to_string(),
+                auth_token: "Bearer some-secret-tokennnnnnn".to_string(),
                 connection: ConnType::HTTPS(
                     "localhost".to_string() as RpcHost,
                     "8668".to_string() as RpcPort,
@@ -456,11 +472,9 @@ mod test {
             let conf = conf.clone();
             tokio::spawn(async move { super::start_server(conf).await });
         }
-        tokio::time::sleep(std::time::Duration::from_secs(
-            5
-        )).await;
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-        let client = client::Client::new(&conf,  "", true)
+        let client = client::Client::new(&conf, "Bearer some-secret-tokennnnnnn", true)
             .await
             .unwrap();
         client.ready().await.unwrap();

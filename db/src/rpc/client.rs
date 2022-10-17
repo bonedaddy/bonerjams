@@ -1,24 +1,37 @@
-use self::auth_service::AuthSvc;
 use super::tonic_openssl::CustomChannel;
 use super::tonic_openssl::CustomClient;
 use super::tonic_openssl::ALPN_H2_WIRE;
 use super::{self_signed_cert::SelfSignedCert, string_reader::StringReader, types::*};
 use anyhow::{anyhow, Result};
 use config::RPC;
+use hyper::{
+    body::HttpBody,
+    header::{self, HeaderValue},
+};
 use hyper::{client::connect::HttpConnector, Uri};
 use hyper_openssl::HttpsConnector;
 use openssl::ssl::SslConnector;
 use openssl::ssl::SslMethod;
 use openssl::x509::X509;
-use tonic::service::interceptor;
 use std::{str::FromStr, sync::Arc};
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+use tonic::body::BoxBody;
+use tonic::service::interceptor;
 use tonic::{
     codegen::InterceptedService,
     transport::{Certificate, Channel, ClientTlsConfig, Identity},
     Request, Status,
 };
+use tower::Service;
 use tower::ServiceBuilder;
+use tower_http::{
+    classify::{GrpcCode, GrpcErrorsAsFailures, SharedClassifier},
+    compression::CompressionLayer,
+    decompression::DecompressionLayer,
+    sensitive_headers::SetSensitiveHeadersLayer,
+    set_header::SetRequestHeaderLayer,
+    trace::{DefaultMakeSpan, TraceLayer},
+};
 pub struct BatchPutEntry {
     pub key: Vec<u8>,
     pub value: Vec<u8>,
@@ -95,12 +108,33 @@ impl Client {
 impl InnerClient {
     async fn authenticated_client(
         &mut self,
-    ) -> key_value_store_client::KeyValueStoreClient<AuthSvc>  {
-        key_value_store_client::KeyValueStoreClient::new(
+    ) -> Result<
+        key_value_store_client::KeyValueStoreClient<
+            impl Service<
+                    hyper::Request<BoxBody>,
+                    Response = hyper::Response<
+                        impl hyper::body::HttpBody<
+                            Data = hyper::body::Bytes,
+                            Error = impl Into<tower_http::BoxError>,
+                        >,
+                    >,
+                    Error = impl Into<tower_http::BoxError>,
+                > + Clone
+                + Send
+                + Sync
+                + 'static,
+        >,
+        tonic::transport::Error,
+    > {
+        Ok(key_value_store_client::KeyValueStoreClient::new(
             ServiceBuilder::new()
-                .layer_fn(auth_service::AuthSvc::new)
-                .service(self.kc.clone())
-        )
+                // Set a `User-Agent` header
+                .layer(SetRequestHeaderLayer::overriding(
+                    http::header::HeaderName::from_bytes("authorization".as_bytes()).unwrap(),
+                    HeaderValue::from_str(&self.auth_token).unwrap(),
+                ))
+                .service(self.kc.clone()),
+        ))
     }
     fn client(&mut self) -> key_value_store_client::KeyValueStoreClient<CustomChannel> {
         key_value_store_client::KeyValueStoreClient::new(self.kc.clone())
@@ -128,7 +162,7 @@ impl InnerClient {
         if self.auth_token.is_empty() {
             self.client().put_kvs(req).await?;
         } else {
-            self.authenticated_client().await.put_kvs(req).await?;
+            self.authenticated_client().await?.put_kvs(req).await?;
         }
 
         Ok(())
@@ -138,7 +172,7 @@ impl InnerClient {
             self.client().put_kv((key.to_vec(), value.to_vec())).await?;
         } else {
             self.authenticated_client()
-                .await
+                .await?
                 .put_kv((key.to_vec(), value.to_vec()))
                 .await?;
         }
@@ -150,7 +184,7 @@ impl InnerClient {
         } else {
             Ok(self
                 .authenticated_client()
-                .await
+                .await?
                 .get_kv(key.to_vec())
                 .await?
                 .into_inner())
@@ -162,7 +196,7 @@ impl InnerClient {
         } else {
             Ok(self
                 .authenticated_client()
-                .await
+                .await?
                 .list(tree.to_vec())
                 .await?
                 .into_inner())
@@ -185,7 +219,7 @@ impl InnerClient {
                     }
                 }
             } else {
-                match self.authenticated_client().await.health_check(()).await {
+                match self.authenticated_client().await?.health_check(()).await {
                     Ok(ok) => {
                         if !ok.into_inner().ok {
                             log::warn!("health check not ok, waiting...");
@@ -211,7 +245,7 @@ impl InnerClient {
                 Err(err) => Err(anyhow::anyhow!("{:#?}", err)),
             }
         } else {
-            match self.authenticated_client().await.exist(key.to_vec()).await {
+            match self.authenticated_client().await?.exist(key.to_vec()).await {
                 Ok(exists) => {
                     let inner = exists.into_inner();
                     Ok(inner.into())
@@ -242,64 +276,13 @@ impl InnerClient {
                 Err(err) => Err(anyhow!("{:#?}", err)),
             }
         } else {
-            match self.authenticated_client().await.batch_exist(req).await {
+            match self.authenticated_client().await?.batch_exist(req).await {
                 Ok(res) => {
                     let inner = res.into_inner();
                     Ok(inner)
                 }
                 Err(err) => Err(anyhow!("{:#?}", err)),
             }
-        }
-    }
-}
-
-
-mod auth_service {
-    use http::{Request, Response, HeaderValue};
-    use tonic::metadata::MetadataValue;
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
-    use tonic::body::BoxBody;
-    use tonic::transport::Body;
-    use tonic::transport::Channel;
-    use tower::Service;
-
-    use super::super::tonic_openssl::CustomChannel;
-
-    pub struct AuthSvc {
-        inner: CustomChannel,
-    }
-
-    impl AuthSvc {
-        pub fn new(inner: CustomChannel) -> Self {
-            AuthSvc { inner }
-        }
-    }
-
-    impl Service<Request<BoxBody>> for AuthSvc {
-        type Response = Response<Body>;
-        type Error = Box<dyn std::error::Error + Send + Sync>;
-        #[allow(clippy::type_complexity)]
-        type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-        fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-            self.inner.poll_ready(cx).map_err(Into::into)
-        }
-
-        fn call(&mut self, mut req: Request<BoxBody>) -> Self::Future {
-            // This is necessary because tonic internally uses `tower::buffer::Buffer`.
-            // See https://github.com/tower-rs/tower/issues/547#issuecomment-767629149
-            // for details on why this is necessary
-            let clone = self.inner.clone();
-            let mut inner = std::mem::replace(&mut self.inner, clone);        
-            req.headers_mut().insert("authorization", HeaderValue::from_str(&inner.clone().auth_token.unwrap_or("".to_string())).unwrap()).unwrap();
-            Box::pin(async move {
-                // Do extra async work here...
-                let response = inner.call(req).await?;
-
-                Ok(response)
-            })
         }
     }
 }

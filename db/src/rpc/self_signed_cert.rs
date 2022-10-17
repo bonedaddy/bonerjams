@@ -5,16 +5,17 @@ use chrono::prelude::*;
 use config::RPC;
 use openssl::{
     ec::{EcGroup, EcKey},
-    nid::Nid, x509::{X509NameRef, X509Name},
+    nid::Nid,
+    x509::{X509Name, X509NameRef},
 };
-use rcgen::{date_time_ymd, IsCa, BasicConstraints, PublicKey, KeyIdMethod};
+use rcgen::{date_time_ymd, BasicConstraints, IsCa, KeyIdMethod, PublicKey};
 use rcgen::{
     generate_simple_self_signed, Certificate, CertificateParams, DistinguishedName, SanType,
 };
 use ring::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm};
 use tonic::IntoRequest;
 
-/// provides a self-signed certificate 
+/// provides a self-signed certificate
 #[derive(Clone, Debug)]
 pub struct SelfSignedCert {
     /// base64 pem encoded keypair
@@ -36,7 +37,6 @@ impl From<&RPC> for SelfSignedCert {
     }
 }
 
-
 impl From<(&str, &str)> for SelfSignedCert {
     fn from(inputs: (&str, &str)) -> Self {
         Self {
@@ -51,7 +51,7 @@ impl SelfSignedCert {
         subject_alt_names: &[String],
         validity_period_days: u64,
         rsa: bool,
-        ca: bool
+        ca: bool,
     ) -> Result<Self> {
         let now = Utc::now();
         let then = now
@@ -65,7 +65,7 @@ impl SelfSignedCert {
         params.not_after = date_time_ymd(then.year().into(), then.month() as u8, then.day() as u8);
         if rsa {
             params.alg = &rcgen::PKCS_RSA_SHA256;
-    
+
             params.key_pair = {
                 let pkey: openssl::pkey::PKey<_> = openssl::rsa::Rsa::generate(4096)?.try_into()?;
                 let pkey_pem = String::from_utf8(pkey.private_key_to_pem_pkcs8()?)?;
@@ -76,13 +76,13 @@ impl SelfSignedCert {
             params.key_pair = { Some(rcgen::KeyPair::generate(&rcgen::PKCS_ECDSA_P256_SHA256)?) };
         }
         let cert = Certificate::from_params(params)?;
-        
+
         let pem_cert_serialized = cert.serialize_pem()?;
         let pem_key_serialized = cert.serialize_private_key_pem();
-        
+
         let crt = base64::encode(pem_cert_serialized);
         let key = base64::encode(pem_key_serialized);
-    
+
         Ok(SelfSignedCert {
             base64_cert: crt,
             base64_key: key,

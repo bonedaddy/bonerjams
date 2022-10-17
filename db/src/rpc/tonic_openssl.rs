@@ -21,11 +21,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 //! Examples can be found in the `example` crate
 //! within the repository.
 
-#![warn(
-    missing_debug_implementations,
-    missing_docs,
-    unreachable_pub
-)]
+#![warn(missing_debug_implementations, missing_docs, unreachable_pub)]
 
 use async_stream::try_stream;
 use futures::{Stream, TryStream, TryStreamExt};
@@ -166,21 +162,16 @@ impl<T> SslConnectInfo<T> {
     }
 }
 
-
 use http::{Request, Response};
-use tonic::body::BoxBody;
-use tonic::transport::Body;
-use tower::Service;
 use hyper::{
     client::{HttpConnector, ResponseFuture},
     Client, Uri,
 };
 use hyper_openssl::HttpsConnector;
-use openssl::{
-    ssl::{SslConnector, SslMethod},
-};
-
-
+use openssl::ssl::{SslConnector, SslMethod};
+use tonic::body::BoxBody;
+use tonic::transport::Body;
+use tower::Service;
 
 /// a custom tonic channel that allows low-level
 /// controls of http/https transport setttings and provides
@@ -205,7 +196,11 @@ pub enum CustomClient {
 
 impl CustomChannel {
     /// returns a new custom channel
-    pub async fn new(tls: bool, uri: Uri, auth_token: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(
+        tls: bool,
+        uri: Uri,
+        auth_token: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut http = HttpConnector::new();
         http.enforce_http(false);
         let client = match tls {
@@ -223,10 +218,17 @@ impl CustomChannel {
             }
         };
 
-        Ok(Self { client, uri, auth_token: if auth_token.is_empty() { None } else { Some(auth_token.to_string())} })
+        Ok(Self {
+            client,
+            uri,
+            auth_token: if auth_token.is_empty() {
+                None
+            } else {
+                Some(auth_token.to_string())
+            },
+        })
     }
 }
-
 
 // Check out this blog post for an introduction to Tower:
 // https://tokio.rs/blog/2021-05-14-inventing-the-service-trait

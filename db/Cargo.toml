@@ -30,7 +30,7 @@ rustls-pemfile = "*"
 tokio-rustls = "*"
 hyper-rustls = { version = "0.23", features = ["http2"] }
 hyper = { version = "0.14", features = ["full"] }
-tower-http = { version = "0.3", features = ["add-extension", "util"] }
+tower-http = { version = "0.3", features = ["full", "add-extension", "util"] }
 h2 = "0.3"
 http-body = "0.4.2"
 hyper-openssl = "0.9.2"

@@ -68,9 +68,12 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
             ("put", Some(put_cmd)) => {
                 let conf = get_config(config_file_path)?;
                 config::init_log(false)?;
-                let client =
-                    db::rpc::client::Client::new(&conf, &conf.rpc.auth_token, !conf.rpc.tls_cert.is_empty() && !conf.rpc.tls_key.is_empty())
-                        .await?;
+                let client = db::rpc::client::Client::new(
+                    &conf,
+                    &conf.rpc.auth_token,
+                    !conf.rpc.tls_cert.is_empty() && !conf.rpc.tls_key.is_empty(),
+                )
+                .await?;
                 Ok(client
                     .put(
                         put_cmd.value_of("key").unwrap().as_bytes(),
@@ -81,9 +84,12 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
             ("get", Some(get_cmd)) => {
                 let conf = get_config(config_file_path)?;
                 config::init_log(false)?;
-                let client =
-                    db::rpc::client::Client::new(&conf, &conf.rpc.auth_token, !conf.rpc.tls_cert.is_empty() && !conf.rpc.tls_key.is_empty())
-                        .await?;
+                let client = db::rpc::client::Client::new(
+                    &conf,
+                    &conf.rpc.auth_token,
+                    !conf.rpc.tls_cert.is_empty() && !conf.rpc.tls_key.is_empty(),
+                )
+                .await?;
                 let val = client
                     .get(get_cmd.value_of("key").unwrap().as_bytes())
                     .await?;
