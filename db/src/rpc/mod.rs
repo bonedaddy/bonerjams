@@ -39,7 +39,6 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
     match &conf.rpc.connection {
         ConnType::HTTPS(_, _) => {
             let tls_cert_info: SelfSignedCert = (&conf.rpc).into();
-            log::info!("loading certs");
             let identity = Identity::from_pem(tls_cert_info.cert()?, tls_cert_info.key()?);
 
             let server_builder = Server::builder()
@@ -52,13 +51,8 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
                     types::key_value_store_server::KeyValueStoreServer::with_interceptor(
                         state,
                         move |req: Request<()>| -> Result<Request<()>, Status> {
-                            println!("checking auth token {}", auth_token);
                             let token: MetadataValue<_> = auth_token.parse().unwrap();
-
-                            let got_auth = req.metadata().get("authorization");
-                            println!("got auth {:#?}", got_auth);
-
-                            match got_auth {
+                            match req.metadata().get("authorization") {
                                 Some(t) if token == t => Ok(req),
                                 _ => Err(Status::unauthenticated("No valid auth token")),
                             }
@@ -84,7 +78,6 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
                         state,
                         move |req: Request<()>| -> Result<Request<()>, Status> {
                             let token: MetadataValue<_> = auth_token.parse().unwrap();
-                            println!("got token {:#?}", token);
 
                             match req.metadata().get("authorization") {
                                 Some(t) if token == t => Ok(req),
@@ -111,7 +104,6 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
                         state,
                         move |req: Request<()>| -> Result<Request<()>, Status> {
                             let token: MetadataValue<_> = auth_token.parse().unwrap();
-                            println!("got token {:#?}", token);
                             match req.metadata().get("authorization") {
                                 Some(t) if token == t => Ok(req),
                                 _ => Err(Status::unauthenticated("No valid auth token")),
