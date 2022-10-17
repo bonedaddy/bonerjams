@@ -404,11 +404,9 @@ mod test {
     #[tokio::test(flavor = "multi_thread")]
     #[allow(unused_must_use)]
     async fn test_run_server_tcp_tls() {
-
-        let self_signed = super::super::tls::create_self_signed(
+        // https://github.com/LucioFranco/tonic-openssl/blob/master/example/src/server.rs
+        let self_signed = super::super::tls::create_self_signed2(
             &["https://localhost:8668".to_string(), "localhost".to_string(), "localhost:8668".to_string()],
-            1000,
-            false,
         ).unwrap();
         let mut conf = Configuration {
             db: DbOpts {
