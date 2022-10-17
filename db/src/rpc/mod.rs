@@ -8,13 +8,10 @@ pub mod tonic_openssl;
 pub mod types;
 
 use crate::rpc::types::HealthCheck;
-use crate::{
-    types::{DbKey, DbTrees},
-    DbBatch, DbTree,
-};
+use crate::types::DbKey;
 use config::ConnType;
 use self_signed_cert::SelfSignedCert;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::TcpListenerStream;

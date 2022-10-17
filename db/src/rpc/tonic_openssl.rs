@@ -182,6 +182,8 @@ pub struct CustomChannel {
     pub uri: Uri,
     /// a tls capable client/transport
     pub client: CustomClient,
+    /// an optional token to insert into the `authorization` header
+    /// used for token based authentication
     pub auth_token: Option<String>,
 }
 

@@ -5,15 +5,15 @@
 //! # Examples
 //!
 //! ```
-//! use std::io::{Read, BufRead, BufReader};
-//! use stringreader::StringReader;
+//!    use std::io::{Read, BufRead, BufReader};
+//!    use stringreader::StringReader;
 //!
-//! let mut streader = StringReader::new("Line 1\nLine 2");
-//! let mut bufreader = BufReader::new(streader);
-//!	let mut buffer = String::new();
+//!    let mut streader = StringReader::new("Line 1\nLine 2");
+//!    let mut bufreader = BufReader::new(streader);
+//!    let mut buffer = String::new();
 //!
-//! bufreader.read_line(&mut buffer).unwrap();
-//!	println!("{}", buffer);
+//!    bufreader.read_line(&mut buffer).unwrap();
+//!    println!("{}", buffer);
 //! ```
 //!
 //! Prints "Line 1\n"
@@ -37,9 +37,9 @@ impl<'a> StringReader<'a> {
 
 impl<'a> Read for StringReader<'a> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        for i in 0..buf.len() {
+        for (i, item) in buf.iter_mut().enumerate() {
             if let Some(x) = self.iter.next() {
-                buf[i] = *x;
+                *item = *x;
             } else {
                 return Ok(i);
             }

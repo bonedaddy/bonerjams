@@ -1,23 +1,12 @@
-use super::{self_signed_cert::SelfSignedCert, types::*};
+use super::types::*;
 use crate::{
     types::{DbKey, DbTrees},
     DbBatch, DbTree,
 };
-use config::ConnType;
 
 use std::{collections::HashMap, sync::Arc};
-use tokio::net::TcpListener;
-use tokio::net::UnixListener;
 
-use tokio_stream::wrappers::TcpListenerStream;
-use tokio_stream::wrappers::UnixListenerStream;
-use tonic::{
-    metadata::MetadataValue,
-    transport::{Identity, Server, ServerTlsConfig},
-    Request, Status,
-};
-
-use tonic_health::ServingStatus;
+use tonic::Status;
 
 #[tonic::async_trait]
 impl key_value_store_server::KeyValueStore for Arc<State> {
@@ -325,7 +314,6 @@ mod test {
     #[tokio::test(flavor = "multi_thread")]
     #[allow(unused_must_use)]
     async fn test_run_server_tcp_tls() {
-        /// tls works but authentication is broken
         // https://github.com/LucioFranco/tonic-openssl/blob/master/example/src/server.rs
         let self_signed = super::super::self_signed_cert::SelfSignedCert::new(
             &[
