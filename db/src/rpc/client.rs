@@ -2,7 +2,6 @@ use super::tonic_openssl::CustomChannel;
 
 use super::types::*;
 use anyhow::{anyhow, Result};
-use config::RPC;
 use hyper::header::HeaderValue;
 use hyper::Uri;
 
@@ -13,20 +12,15 @@ use tonic::body::BoxBody;
 use tower::Service;
 use tower::ServiceBuilder;
 use tower_http::set_header::SetRequestHeaderLayer;
-pub struct BatchPutEntry {
-    pub key: Vec<u8>,
-    pub value: Vec<u8>,
-}
 
 #[derive(Clone)]
 struct InnerClient {
-    rpc_conf: RPC,
     auth_token: String,
     kc: CustomChannel,
 }
 
+#[derive(Clone)]
 pub struct Client {
-    conf: config::Configuration,
     inner: InnerClient,
 }
 
@@ -43,9 +37,7 @@ impl Client {
             inner: InnerClient {
                 auth_token: auth_token.to_string(),
                 kc: channel,
-                rpc_conf: conf.rpc.clone(),
             },
-            conf: conf.clone(),
         });
         Ok(client)
     }

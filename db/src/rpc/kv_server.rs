@@ -267,7 +267,7 @@ impl State {
 #[cfg(test)]
 mod test {
     use crate::rpc::client;
-    use crate::rpc::client::BatchPutEntry;
+    use crate::rpc::types::BatchPutEntry;
     use crate::rpc::types::KeyValue;
     use config::{database::DbOpts, Configuration, ConnType, RpcHost, RpcPort, RPC};
     use std::collections::HashMap;

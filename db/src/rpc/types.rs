@@ -4,6 +4,11 @@ use crate::types::DbKey;
 use tokio::sync::mpsc;
 use tonic::transport::NamedService;
 
+pub struct BatchPutEntry {
+    pub key: Vec<u8>,
+    pub value: Vec<u8>,
+}
+
 #[derive(Clone)]
 pub struct State {
     pub db: std::sync::Arc<crate::Database>,
