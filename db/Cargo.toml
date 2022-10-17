@@ -17,7 +17,7 @@ serde_json = "1"
 sled = "0.34.7"
 anyhow = "1"
 log = "0.4"
-bonerjams-config = {path = "../config"}
+bonerjams-config = {path = "../config", version = "0.0.2"}
 base64 = "0.13"
 tokio = { version = "1", features = [ "rt-multi-thread", "macros", "full", "tracing", "parking_lot", "net"] }
 tokio-stream = { version = "0.1", features = [ "net" ] }
