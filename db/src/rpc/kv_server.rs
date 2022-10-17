@@ -1,16 +1,22 @@
-use super::types::*;
+use super::{self_signed_cert::SelfSignedCert, types::*};
 use crate::{
     types::{DbKey, DbTrees},
     DbBatch, DbTree,
 };
 use config::ConnType;
+
 use std::{collections::HashMap, sync::Arc};
 use tokio::net::TcpListener;
 use tokio::net::UnixListener;
 
 use tokio_stream::wrappers::TcpListenerStream;
 use tokio_stream::wrappers::UnixListenerStream;
-use tonic::{metadata::MetadataValue, transport::Server, Request, Status};
+use tonic::{
+    metadata::MetadataValue,
+    transport::{Identity, Server, ServerTlsConfig},
+    Request, Status,
+};
+
 use tonic_health::ServingStatus;
 
 #[tonic::async_trait]
@@ -269,48 +275,6 @@ impl State {
     }
 }
 
-/// starts the gRPC server providing RPC access to the underlying sled database
-pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
-    let state = Arc::new(State {
-        db: crate::Database::new(&conf.db)?,
-    });
-    let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
-    health_reporter
-        .set_service_status(HealthCheck { ok: true }, ServingStatus::Serving)
-        .await;
-
-    let server_builder = Server::builder().add_service(health_service);
-
-    let server_builder = if !conf.rpc.auth_token.is_empty() {
-        server_builder.add_service(
-            key_value_store_server::KeyValueStoreServer::with_interceptor(state, check_auth),
-        )
-    } else {
-        server_builder.add_service(key_value_store_server::KeyValueStoreServer::new(state))
-    };
-    match &conf.rpc.connection {
-        ConnType::HTTP(_, _) => {
-            let listener = TcpListenerStream::new(TcpListener::bind(&conf.rpc.server_url()).await?);
-            Ok(server_builder.serve_with_incoming(listener).await?)
-        }
-        ConnType::UDS(path) => {
-            tokio::fs::create_dir_all(std::path::Path::new(&path).parent().unwrap()).await?;
-            let uds = UnixListener::bind(path)?;
-            let uds_stream = UnixListenerStream::new(uds);
-            Ok(server_builder.serve_with_incoming(uds_stream).await?)
-        }
-    }
-}
-
-pub fn check_auth(req: Request<()>) -> Result<Request<()>, Status> {
-    let token: MetadataValue<_> = "Bearer some-secret-token".parse().unwrap();
-
-    match req.metadata().get("authorization") {
-        Some(t) if token == t => Ok(req),
-        _ => Err(Status::unauthenticated("No valid auth token")),
-    }
-}
-
 #[cfg(test)]
 mod test {
     use crate::rpc::client;
@@ -327,11 +291,9 @@ mod test {
                 ..Default::default()
             },
             rpc: RPC {
-                port: "8668".to_string(),
-                proto: "unix".to_string(),
-                host: "127.0.0.1".to_string(),
                 auth_token: "Bearer some-secret-token".to_string(),
                 connection: ConnType::UDS("/tmp/test_server.ipc".to_string()),
+                ..Default::default()
             },
         };
         config::init_log(true);
@@ -348,29 +310,154 @@ mod test {
                 ..Default::default()
             },
             rpc: RPC {
-                port: "8668".to_string(),
-                proto: "http".to_string(),
-                host: "127.0.0.1".to_string(),
-                auth_token: "Bearer some-secret-token".to_string(),
+                auth_token: "Bearer some-secret-tokennnnnnn".to_string(),
                 connection: ConnType::HTTP(
                     "127.0.0.1".to_string() as RpcHost,
                     "8668".to_string() as RpcPort,
                 ),
+                ..Default::default()
             },
         };
         config::init_log(true);
 
         run_server(conf).await;
     }
+    #[tokio::test(flavor = "multi_thread")]
+    #[allow(unused_must_use)]
+    async fn test_run_server_tcp_tls() {
+        /// tls works but authentication is broken
+        // https://github.com/LucioFranco/tonic-openssl/blob/master/example/src/server.rs
+        let self_signed = super::super::self_signed_cert::SelfSignedCert::new(
+            &[
+                "https://localhost:8668".to_string(),
+                "localhost".to_string(),
+                "localhost:8668".to_string(),
+            ],
+            1000,
+            false,
+            false,
+        )
+        .unwrap();
+        let conf = Configuration {
+            db: DbOpts {
+                path: "/tmp/kek2232222.db".to_string(),
+                ..Default::default()
+            },
+            rpc: RPC {
+                auth_token: "Bearer some-secret-tokennnnnnn".to_string(),
+                connection: ConnType::HTTPS(
+                    "localhost".to_string() as RpcHost,
+                    "8668".to_string() as RpcPort,
+                ),
+                tls_cert: self_signed.base64_cert,
+                tls_key: self_signed.base64_key,
+            },
+        };
+        config::init_log(true);
 
+        run_server_tls(conf).await;
+    }
+    // starts the server and runs some basic tests
+    async fn run_server_tls(conf: config::Configuration) {
+        {
+            let conf = conf.clone();
+            tokio::spawn(async move { crate::rpc::start_server(conf).await });
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        let client = client::Client::new(&conf, "Bearer some-secret-tokennnnnnn", true)
+            .await
+            .unwrap();
+        client.ready().await.unwrap();
+        client
+            .put(
+                "four twenty blaze".as_bytes(),
+                "sixty nine gigity".as_bytes(),
+            )
+            .await
+            .unwrap();
+        client.put("1".as_bytes(), "2".as_bytes()).await.unwrap();
+        client.put("3".as_bytes(), "4".as_bytes()).await.unwrap();
+        let response = client.get("four twenty blaze".as_bytes()).await.unwrap();
+        println!("key 'four twenty blaze', value {:?}", unsafe {
+            String::from_utf8_unchecked(response)
+        });
+
+        let mut entries = HashMap::new();
+        entries.insert(
+            "".to_string(),
+            vec![KeyValue {
+                key: "sixety_nine".as_bytes().to_vec(),
+                value: "l33tm0d3".as_bytes().to_vec(),
+            }],
+        );
+        entries.insert(
+            base64::encode(vec![4, 2, 0]),
+            vec![KeyValue {
+                key: "sixety_nine".as_bytes().to_vec(),
+                value: "l33tm0d3".as_bytes().to_vec(),
+            }],
+        );
+        client
+            .batch_put(vec![
+                (
+                    vec![],
+                    vec![BatchPutEntry {
+                        key: "sixety_nine".as_bytes().to_vec(),
+                        value: "l33tm0d3".as_bytes().to_vec(),
+                    }],
+                ),
+                (
+                    vec![4, 2, 0],
+                    vec![BatchPutEntry {
+                        key: "sixety_nine".as_bytes().to_vec(),
+                        value: "l33tm0d3".as_bytes().to_vec(),
+                    }],
+                ),
+            ])
+            .await
+            .unwrap();
+        let response = client.get("four twenty blaze".as_bytes()).await.unwrap();
+        println!("response {}", unsafe {
+            String::from_utf8_unchecked(response)
+        });
+        client
+            .list(&[])
+            .await
+            .unwrap()
+            .iter()
+            .for_each(|key_value| {
+                println!(
+                    "key {}, value {}",
+                    unsafe { String::from_utf8_unchecked(key_value.key.clone()) },
+                    unsafe { String::from_utf8_unchecked(key_value.value.clone()) }
+                )
+            });
+        client
+            .batch_exists(vec![
+                (vec![], vec!["sixety_nine".as_bytes().to_vec()]),
+                (
+                    vec![4, 2, 0],
+                    vec![
+                        "sixety_nine".as_bytes().to_vec(),
+                        "foobarbaz".as_bytes().to_vec(),
+                    ],
+                ),
+            ])
+            .await
+            .unwrap()
+            .entries
+            .iter()
+            .for_each(|exists_tree| println!("{:#?}", exists_tree));
+    }
     // starts the server and runs some basic tests
     async fn run_server(conf: config::Configuration) {
         {
             let conf = conf.clone();
-            tokio::spawn(async move { super::start_server(conf).await });
+            tokio::spawn(async move { crate::rpc::start_server(conf).await });
         }
 
-        let client = client::Client::new(&conf.rpc.client_url(), "Bearer some-secret-token")
+        let client = client::Client::new(&conf, "Bearer some-secret-token", false)
             .await
             .unwrap();
         client.ready().await.unwrap();

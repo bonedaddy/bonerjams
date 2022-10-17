@@ -29,10 +29,7 @@ impl pub_sub_server::PubSub for PubSubState {
                     }
                 }
                 let mut subscribers = subscribers.lock().unwrap();
-                subscribers
-                    .entry(channel)
-                    .or_insert(vec![])
-                    .push(tx.clone());
+                subscribers.entry(channel).or_default().push(tx.clone());
             }
         });
         Ok(tonic::Response::new(ReceiverStream::new(rx)))

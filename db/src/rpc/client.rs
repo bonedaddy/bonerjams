@@ -1,12 +1,18 @@
+use super::tonic_openssl::CustomChannel;
+
 use super::types::*;
-
 use anyhow::{anyhow, Result};
-use std::sync::Arc;
-use tonic::{codegen::InterceptedService, transport::Channel, Request, Status};
+use config::RPC;
+use hyper::header::HeaderValue;
+use hyper::Uri;
+
+use std::{str::FromStr, sync::Arc};
+
+use tonic::body::BoxBody;
+
+use tower::Service;
 use tower::ServiceBuilder;
-
-use self::auth_service::AuthSvc;
-
+use tower_http::set_header::SetRequestHeaderLayer;
 pub struct BatchPutEntry {
     pub key: Vec<u8>,
     pub value: Vec<u8>,
@@ -14,21 +20,32 @@ pub struct BatchPutEntry {
 
 #[derive(Clone)]
 struct InnerClient {
+    rpc_conf: RPC,
     auth_token: String,
-    kc: Channel,
+    kc: CustomChannel,
 }
 
 pub struct Client {
+    conf: config::Configuration,
     inner: InnerClient,
 }
 
 impl Client {
-    pub async fn new(url: &str, auth_token: &str) -> Result<Arc<Client>> {
+    pub async fn new(
+        conf: &config::Configuration,
+        auth_token: &str,
+        tls: bool,
+    ) -> Result<Arc<Client>> {
+        let channel = CustomChannel::new(tls, Uri::from_str(&conf.rpc.client_url())?, auth_token)
+            .await
+            .unwrap();
         let client = Arc::new(Client {
             inner: InnerClient {
                 auth_token: auth_token.to_string(),
-                kc: Channel::from_shared(url.to_string())?.connect_lazy(),
+                kc: channel,
+                rpc_conf: conf.rpc.clone(),
             },
+            conf: conf.clone(),
         });
         Ok(client)
     }
@@ -72,19 +89,35 @@ impl Client {
 impl InnerClient {
     async fn authenticated_client(
         &mut self,
-    ) -> key_value_store_client::KeyValueStoreClient<
-        InterceptedService<AuthSvc, fn(req: Request<()>) -> Result<Request<()>, Status>>,
+    ) -> Result<
+        key_value_store_client::KeyValueStoreClient<
+            impl Service<
+                    hyper::Request<BoxBody>,
+                    Response = hyper::Response<
+                        impl hyper::body::HttpBody<
+                            Data = hyper::body::Bytes,
+                            Error = impl Into<tower_http::BoxError>,
+                        >,
+                    >,
+                    Error = impl Into<tower_http::BoxError>,
+                > + Clone
+                + Send
+                + Sync
+                + 'static,
+        >,
+        tonic::transport::Error,
     > {
-        key_value_store_client::KeyValueStoreClient::new(
+        Ok(key_value_store_client::KeyValueStoreClient::new(
             ServiceBuilder::new()
-                .layer(tonic::service::interceptor(
-                    intercept as fn(req: Request<()>) -> Result<Request<()>, Status>,
+                // Set a `User-Agent` header
+                .layer(SetRequestHeaderLayer::overriding(
+                    http::header::HeaderName::from_bytes("authorization".as_bytes()).unwrap(),
+                    HeaderValue::from_str(&self.auth_token).unwrap(),
                 ))
-                .layer_fn(auth_service::AuthSvc::new)
                 .service(self.kc.clone()),
-        )
+        ))
     }
-    fn client(&mut self) -> key_value_store_client::KeyValueStoreClient<Channel> {
+    fn client(&mut self) -> key_value_store_client::KeyValueStoreClient<CustomChannel> {
         key_value_store_client::KeyValueStoreClient::new(self.kc.clone())
     }
     /// args maps trees -> keyvalues
@@ -110,7 +143,7 @@ impl InnerClient {
         if self.auth_token.is_empty() {
             self.client().put_kvs(req).await?;
         } else {
-            self.authenticated_client().await.put_kvs(req).await?;
+            self.authenticated_client().await?.put_kvs(req).await?;
         }
 
         Ok(())
@@ -120,7 +153,7 @@ impl InnerClient {
             self.client().put_kv((key.to_vec(), value.to_vec())).await?;
         } else {
             self.authenticated_client()
-                .await
+                .await?
                 .put_kv((key.to_vec(), value.to_vec()))
                 .await?;
         }
@@ -132,7 +165,7 @@ impl InnerClient {
         } else {
             Ok(self
                 .authenticated_client()
-                .await
+                .await?
                 .get_kv(key.to_vec())
                 .await?
                 .into_inner())
@@ -144,7 +177,7 @@ impl InnerClient {
         } else {
             Ok(self
                 .authenticated_client()
-                .await
+                .await?
                 .list(tree.to_vec())
                 .await?
                 .into_inner())
@@ -167,7 +200,7 @@ impl InnerClient {
                     }
                 }
             } else {
-                match self.authenticated_client().await.health_check(()).await {
+                match self.authenticated_client().await?.health_check(()).await {
                     Ok(ok) => {
                         if !ok.into_inner().ok {
                             log::warn!("health check not ok, waiting...");
@@ -180,7 +213,6 @@ impl InnerClient {
                     }
                 }
             }
-
             tokio::time::sleep(std::time::Duration::from_millis(250)).await
         }
     }
@@ -194,7 +226,7 @@ impl InnerClient {
                 Err(err) => Err(anyhow::anyhow!("{:#?}", err)),
             }
         } else {
-            match self.authenticated_client().await.exist(key.to_vec()).await {
+            match self.authenticated_client().await?.exist(key.to_vec()).await {
                 Ok(exists) => {
                     let inner = exists.into_inner();
                     Ok(inner.into())
@@ -225,67 +257,13 @@ impl InnerClient {
                 Err(err) => Err(anyhow!("{:#?}", err)),
             }
         } else {
-            match self.authenticated_client().await.batch_exist(req).await {
+            match self.authenticated_client().await?.batch_exist(req).await {
                 Ok(res) => {
                     let inner = res.into_inner();
                     Ok(inner)
                 }
                 Err(err) => Err(anyhow!("{:#?}", err)),
             }
-        }
-    }
-}
-// An interceptor function.
-fn intercept(mut req: Request<()>) -> Result<Request<()>, Status> {
-    req.metadata_mut()
-        .insert("authorization", "Bearer some-secret-token".parse().unwrap());
-    println!("received {:?}", req);
-    Ok(req)
-}
-
-mod auth_service {
-    use http::{Request, Response};
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
-    use tonic::body::BoxBody;
-    use tonic::transport::Body;
-    use tonic::transport::Channel;
-    use tower::Service;
-
-    pub struct AuthSvc {
-        inner: Channel,
-    }
-
-    impl AuthSvc {
-        pub fn new(inner: Channel) -> Self {
-            AuthSvc { inner }
-        }
-    }
-
-    impl Service<Request<BoxBody>> for AuthSvc {
-        type Response = Response<Body>;
-        type Error = Box<dyn std::error::Error + Send + Sync>;
-        #[allow(clippy::type_complexity)]
-        type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-        fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-            self.inner.poll_ready(cx).map_err(Into::into)
-        }
-
-        fn call(&mut self, req: Request<BoxBody>) -> Self::Future {
-            // This is necessary because tonic internally uses `tower::buffer::Buffer`.
-            // See https://github.com/tower-rs/tower/issues/547#issuecomment-767629149
-            // for details on why this is necessary
-            let clone = self.inner.clone();
-            let mut inner = std::mem::replace(&mut self.inner, clone);
-
-            Box::pin(async move {
-                // Do extra async work here...
-                let response = inner.call(req).await?;
-
-                Ok(response)
-            })
         }
     }
 }
