@@ -1,5 +1,5 @@
 [package]
-name = "cli"
+name = "bonerjams-cli"
 version = "0.0.1"
 edition = "2021"
 
@@ -7,8 +7,8 @@ edition = "2021"
 
 [dependencies]
 clap = "2.33.3"
-config = {path = "../config"}
-db = {path = "../db"}
+bonerjams-config = {path = "../config"}
+bonerjams-db = {path = "../db"}
 tokio = { version = "1", features = [ "rt-multi-thread", "macros", "full", "tracing", "parking_lot"] }
 log = "0.4"
 anyhow = "1"

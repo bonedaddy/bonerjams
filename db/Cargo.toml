@@ -1,7 +1,13 @@
 [package]
-name = "db"
-version = "0.0.1"
+name = "bonerjams-db"
+version = "0.0.2"
 edition = "2021"
+authors = ["Bonedaddy"]
+description = "sled database client library with typed apis and a grpc key-value server"
+keywords = ["rust", "sled", "grpc"]
+license = "MIT/Apache-2.0"
+documentation = "https://docs.rs/bonerjams-db"
+readme = "../README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -11,7 +17,7 @@ serde_json = "1"
 sled = "0.34.7"
 anyhow = "1"
 log = "0.4"
-config = {path = "../config"}
+bonerjams-config = {path = "../config"}
 base64 = "0.13"
 tokio = { version = "1", features = [ "rt-multi-thread", "macros", "full", "tracing", "parking_lot", "net"] }
 tokio-stream = { version = "0.1", features = [ "net" ] }

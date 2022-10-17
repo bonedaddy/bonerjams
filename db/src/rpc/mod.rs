@@ -9,7 +9,7 @@ pub mod types;
 
 use crate::rpc::types::HealthCheck;
 use crate::types::DbKey;
-use config::ConnType;
+use bonerjams_config::ConnType;
 use self_signed_cert::SelfSignedCert;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -24,7 +24,7 @@ use tonic::{
 use tonic_health::ServingStatus;
 use types::State;
 /// starts the gRPC server providing RPC access to the underlying sled database
-pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
+pub async fn start_server(conf: bonerjams_config::Configuration) -> anyhow::Result<()> {
     let state = Arc::new(State {
         db: crate::Database::new(&conf.db)?,
     });

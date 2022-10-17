@@ -26,7 +26,7 @@ pub struct Client {
 
 impl Client {
     pub async fn new(
-        conf: &config::Configuration,
+        conf: &bonerjams_config::Configuration,
         auth_token: &str,
         tls: bool,
     ) -> Result<Arc<Client>> {

@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
+use bonerjams_config::Configuration;
 use clap::{App, Arg, SubCommand};
-use config::Configuration;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -97,7 +97,7 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
                     .map(|host| host.to_string())
                     .collect::<Vec<_>>();
 
-                let cert = db::rpc::self_signed_cert::SelfSignedCert::new(
+                let cert = bonerjams_db::rpc::self_signed_cert::SelfSignedCert::new(
                     &hosts[..],
                     matches
                         .value_of("validity-period-days")
@@ -115,14 +115,14 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
         },
         ("server", Some(_)) => {
             let conf = get_config(config_file_path)?;
-            config::init_log(false)?;
-            db::rpc::start_server(conf).await
+            bonerjams_config::init_log(false)?;
+            bonerjams_db::rpc::start_server(conf).await
         }
         ("client", Some(client_cmd)) => match client_cmd.subcommand() {
             ("put", Some(put_cmd)) => {
                 let conf = get_config(config_file_path)?;
-                config::init_log(false)?;
-                let client = db::rpc::client::Client::new(
+                bonerjams_config::init_log(false)?;
+                let client = bonerjams_db::rpc::client::Client::new(
                     &conf,
                     &conf.rpc.auth_token,
                     !conf.rpc.tls_cert.is_empty() && !conf.rpc.tls_key.is_empty(),
@@ -137,8 +137,8 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
             }
             ("get", Some(get_cmd)) => {
                 let conf = get_config(config_file_path)?;
-                config::init_log(false)?;
-                let client = db::rpc::client::Client::new(
+                bonerjams_config::init_log(false)?;
+                let client = bonerjams_db::rpc::client::Client::new(
                     &conf,
                     &conf.rpc.auth_token,
                     !conf.rpc.tls_cert.is_empty() && !conf.rpc.tls_key.is_empty(),

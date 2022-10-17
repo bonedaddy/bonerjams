@@ -216,6 +216,68 @@ dependencies = [
 ]
 
 [[package]]
+name = "bonerjams-cli"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "bonerjams-config",
+ "bonerjams-db",
+ "clap",
+ "log",
+ "tokio",
+]
+
+[[package]]
+name = "bonerjams-config"
+version = "0.0.2"
+dependencies = [
+ "anyhow",
+ "log",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "simplelog",
+ "sled",
+]
+
+[[package]]
+name = "bonerjams-db"
+version = "0.0.2"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "base64",
+ "bonerjams-config",
+ "chrono",
+ "futures",
+ "h2",
+ "http",
+ "http-body",
+ "hyper",
+ "hyper-openssl",
+ "hyper-rustls",
+ "log",
+ "openssl",
+ "pem",
+ "rcgen",
+ "ring",
+ "rustls-pemfile 0.2.1",
+ "serde",
+ "serde_json",
+ "sled",
+ "tokio",
+ "tokio-openssl",
+ "tokio-rustls",
+ "tokio-stream",
+ "tonic",
+ "tonic-health",
+ "tonic-rpc",
+ "tower",
+ "tower-http",
+ "warp",
+]
+
+[[package]]
 name = "brotli"
 version = "3.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -307,18 +369,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cli"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "clap",
- "config",
- "db",
- "log",
- "tokio",
-]
-
-[[package]]
 name = "codespan-reporting"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -326,19 +376,6 @@ checksum = "3538270d33cc669650c4b093848450d380def10c331d38c768e34cac80576e6e"
 dependencies = [
  "termcolor",
  "unicode-width",
-]
-
-[[package]]
-name = "config"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "log",
- "serde",
- "serde_json",
- "serde_yaml",
- "simplelog",
- "sled",
 ]
 
 [[package]]
@@ -456,43 +493,6 @@ name = "data-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ee2393c4a91429dffb4bedf19f4d6abf27d8a732c8ce4980305d782e5426d57"
-
-[[package]]
-name = "db"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "async-stream",
- "base64",
- "chrono",
- "config",
- "futures",
- "h2",
- "http",
- "http-body",
- "hyper",
- "hyper-openssl",
- "hyper-rustls",
- "log",
- "openssl",
- "pem",
- "rcgen",
- "ring",
- "rustls-pemfile 1.0.1",
- "serde",
- "serde_json",
- "sled",
- "tokio",
- "tokio-openssl",
- "tokio-rustls",
- "tokio-stream",
- "tonic",
- "tonic-health",
- "tonic-rpc",
- "tower",
- "tower-http",
- "warp",
-]
 
 [[package]]
 name = "der-parser"

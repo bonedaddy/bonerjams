@@ -269,7 +269,7 @@ mod test {
     use crate::rpc::client;
     use crate::rpc::types::BatchPutEntry;
     use crate::rpc::types::KeyValue;
-    use config::{database::DbOpts, Configuration, ConnType, RpcHost, RpcPort, RPC};
+    use bonerjams_config::{database::DbOpts, Configuration, ConnType, RpcHost, RpcPort, RPC};
     use std::collections::HashMap;
     #[tokio::test(flavor = "multi_thread")]
     #[allow(unused_must_use)]
@@ -285,7 +285,7 @@ mod test {
                 ..Default::default()
             },
         };
-        config::init_log(true);
+        bonerjams_config::init_log(true);
 
         run_server(conf).await;
     }
@@ -307,7 +307,7 @@ mod test {
                 ..Default::default()
             },
         };
-        config::init_log(true);
+        bonerjams_config::init_log(true);
 
         run_server(conf).await;
     }
@@ -341,12 +341,12 @@ mod test {
                 tls_key: self_signed.base64_key,
             },
         };
-        config::init_log(true);
+        bonerjams_config::init_log(true);
 
         run_server_tls(conf).await;
     }
     // starts the server and runs some basic tests
-    async fn run_server_tls(conf: config::Configuration) {
+    async fn run_server_tls(conf: bonerjams_config::Configuration) {
         {
             let conf = conf.clone();
             tokio::spawn(async move { crate::rpc::start_server(conf).await });
@@ -439,7 +439,7 @@ mod test {
             .for_each(|exists_tree| println!("{:#?}", exists_tree));
     }
     // starts the server and runs some basic tests
-    async fn run_server(conf: config::Configuration) {
+    async fn run_server(conf: bonerjams_config::Configuration) {
         {
             let conf = conf.clone();
             tokio::spawn(async move { crate::rpc::start_server(conf).await });

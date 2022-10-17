@@ -4,7 +4,7 @@ pub mod rpc;
 use serde::Serialize;
 pub mod types;
 use anyhow::{anyhow, Result};
-use config::database::DbOpts;
+use bonerjams_config::database::DbOpts;
 use sled::{IVec, Tree};
 use std::sync::Arc;
 

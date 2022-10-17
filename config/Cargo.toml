@@ -1,8 +1,13 @@
 [package]
-name = "config"
-version = "0.0.1"
+name = "bonerjams-config"
+version = "0.0.2"
 edition = "2021"
-
+authors = ["Bonedaddy"]
+description = "configuration crate for bonerjams"
+keywords = ["rust", "sled", "grpc"]
+license = "MIT/Apache-2.0"
+documentation = "https://docs.rs/bonerjams-config"
+readme = "../README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

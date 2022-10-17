@@ -1,8 +1,8 @@
 //! wrapper around multiple libraries to generate self signed certificates
 
 use anyhow::Result;
+use bonerjams_config::RPC;
 use chrono::prelude::*;
-use config::RPC;
 
 use rcgen::{date_time_ymd, BasicConstraints, IsCa};
 use rcgen::{Certificate, CertificateParams};
