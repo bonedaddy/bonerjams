@@ -95,19 +95,14 @@ impl Client {
 impl InnerClient {
     async fn authenticated_client(
         &mut self,
-    ) -> key_value_store_client::KeyValueStoreClient<
-        InterceptedService<AuthSvc, fn(req: Request<()>) -> Result<Request<()>, Status>>,
-    > {
+    ) -> key_value_store_client::KeyValueStoreClient<AuthSvc>  {
         key_value_store_client::KeyValueStoreClient::new(
             ServiceBuilder::new()
-                .layer(tonic::service::interceptor(
-                    intercept as fn(req: Request<()>) -> Result<Request<()>, Status>,
-                ))
                 .layer_fn(auth_service::AuthSvc::new)
                 .service(self.kc.clone())
         )
     }
-    fn client(&mut self) -> key_value_store_client::KeyValueStoreClient<MyChannel> {
+    fn client(&mut self) -> key_value_store_client::KeyValueStoreClient<CustomChannel> {
         key_value_store_client::KeyValueStoreClient::new(self.kc.clone())
     }
     /// args maps trees -> keyvalues
