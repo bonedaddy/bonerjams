@@ -1,4 +1,4 @@
-use super::{types::*, tls::SelfSignedCert, string_reader::StringReader};
+use super::{types::*, self_signed_cert::SelfSignedCert, string_reader::StringReader};
 use crate::{
     types::{DbKey, DbTrees},
     DbBatch, DbTree,
@@ -291,12 +291,22 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
 
             let server_builder = Server::builder()
             .tls_config(ServerTlsConfig::new().identity(identity))?
-            .accept_http1(true)
             .add_service(health_service);
 
+
+
             let server_builder = if !conf.rpc.auth_token.is_empty() {
+                let auth_token = Arc::new(conf.rpc.auth_token.clone());
                 server_builder.add_service(
-                    key_value_store_server::KeyValueStoreServer::with_interceptor(state, check_auth),
+                    key_value_store_server::KeyValueStoreServer::with_interceptor(state, move |req: Request<()>| -> Result<Request<()>, Status> {
+                        println!("checking auth token {}", auth_token);
+                        let token: MetadataValue<_> = auth_token.parse().unwrap();
+            
+                        match req.metadata().get("authorization") {
+                            Some(t) if token == t => Ok(req),
+                            _ => Err(Status::unauthenticated("No valid auth token")),
+                        }
+                    }),
                 )
             } else {
                 server_builder.add_service(key_value_store_server::KeyValueStoreServer::new(state))
@@ -310,8 +320,16 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
             .add_service(health_service);
 
             let server_builder = if !conf.rpc.auth_token.is_empty() {
+                let auth_token = Arc::new(conf.rpc.auth_token.clone());
                 server_builder.add_service(
-                    key_value_store_server::KeyValueStoreServer::with_interceptor(state, check_auth),
+                    key_value_store_server::KeyValueStoreServer::with_interceptor(state, move |req: Request<()>| -> Result<Request<()>, Status> {
+                        let token: MetadataValue<_> = auth_token.parse().unwrap();
+            
+                        match req.metadata().get("authorization") {
+                            Some(t) if token == t => Ok(req),
+                            _ => Err(Status::unauthenticated("No valid auth token")),
+                        }
+                    }),
                 )
             } else {
                 server_builder.add_service(key_value_store_server::KeyValueStoreServer::new(state))
@@ -324,8 +342,16 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
             .add_service(health_service);
 
             let server_builder = if conf.rpc.auth_token.is_empty() {
+                let auth_token = Arc::new(conf.rpc.auth_token.clone());
                 server_builder.add_service(
-                    key_value_store_server::KeyValueStoreServer::with_interceptor(state, check_auth),
+                    key_value_store_server::KeyValueStoreServer::with_interceptor(state, move |req: Request<()>| -> Result<Request<()>, Status> {
+                        let token: MetadataValue<_> = auth_token.parse().unwrap();
+            
+                        match req.metadata().get("authorization") {
+                            Some(t) if token == t => Ok(req),
+                            _ => Err(Status::unauthenticated("No valid auth token")),
+                        }
+                    }),
                 )
             } else {
                 server_builder.add_service(key_value_store_server::KeyValueStoreServer::new(state))
@@ -338,15 +364,6 @@ pub async fn start_server(conf: config::Configuration) -> anyhow::Result<()> {
     }
 }
 
-pub fn check_auth(req: Request<()>) -> Result<Request<()>, Status> {
-    let token: MetadataValue<_> = "Bearer some-secret-token".parse().unwrap();
-
-    match req.metadata().get("authorization") {
-        Some(t) if token == t => Ok(req),
-        _ => Err(Status::unauthenticated("No valid auth token")),
-    }
-}
-
 
 #[derive(Debug)]
 pub struct ConnInfo {
@@ -356,7 +373,7 @@ pub struct ConnInfo {
 
 #[cfg(test)]
 mod test {
-    use crate::rpc::{client, tls::SelfSignedCert};
+    use crate::rpc::{client, self_signed_cert::SelfSignedCert};
     use crate::rpc::client::BatchPutEntry;
     use crate::rpc::types::KeyValue;
     use config::{database::DbOpts, Configuration, ConnType, RpcHost, RpcPort, RPC};
@@ -389,7 +406,7 @@ mod test {
                 ..Default::default()
             },
             rpc: RPC {
-                auth_token: "Bearer some-secret-token".to_string(),
+                auth_token: "Bearer some-secret-tokennnnnnn".to_string(),
                 connection: ConnType::HTTP(
                     "127.0.0.1".to_string() as RpcHost,
                     "8668".to_string() as RpcPort,
@@ -405,8 +422,11 @@ mod test {
     #[allow(unused_must_use)]
     async fn test_run_server_tcp_tls() {
         // https://github.com/LucioFranco/tonic-openssl/blob/master/example/src/server.rs
-        let self_signed = super::super::tls::create_self_signed2(
+        let self_signed = super::super::self_signed_cert::SelfSignedCert::new(
             &["https://localhost:8668".to_string(), "localhost".to_string(), "localhost:8668".to_string()],
+            1000,
+            false,
+            false,
         ).unwrap();
         let mut conf = Configuration {
             db: DbOpts {
@@ -437,7 +457,7 @@ mod test {
             5
         )).await;
 
-        let client = client::Client::new_tls(&conf,  "Bearer some-secret-token")
+        let client = client::Client::new(&conf,  "Bearer some-secret-token", true)
             .await
             .unwrap();
         client.ready().await.unwrap();
@@ -529,7 +549,7 @@ mod test {
             tokio::spawn(async move { super::start_server(conf).await });
         }
 
-        let client = client::Client::new(&conf, "Bearer some-secret-token")
+        let client = client::Client::new(&conf, "Bearer some-secret-token", false)
             .await
             .unwrap();
         client.ready().await.unwrap();

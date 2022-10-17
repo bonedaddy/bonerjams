@@ -412,9 +412,11 @@ name = "db"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "async-stream",
  "base64",
  "chrono",
  "config",
+ "futures",
  "h2",
  "http",
  "http-body",
@@ -431,11 +433,11 @@ dependencies = [
  "serde_json",
  "sled",
  "tokio",
+ "tokio-openssl",
  "tokio-rustls",
  "tokio-stream",
- "tonic 0.8.2",
+ "tonic",
  "tonic-health",
- "tonic-openssl",
  "tonic-rpc",
  "tower",
  "tower-http",
@@ -1297,22 +1299,12 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.10.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71adf41db68aa0daaefc69bb30bcd68ded9b9abaad5d1fbb6304c4fb390e083e"
-dependencies = [
- "bytes",
- "prost-derive 0.10.1",
-]
-
-[[package]]
-name = "prost"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "399c3c31cdec40583bb68f0b18403400d01ec4289c383aa047560439952c4dd7"
 dependencies = [
  "bytes",
- "prost-derive 0.11.0",
+ "prost-derive",
 ]
 
 [[package]]
@@ -1328,24 +1320,11 @@ dependencies = [
  "log",
  "multimap",
  "petgraph",
- "prost 0.11.0",
+ "prost",
  "prost-types",
  "regex",
  "tempfile",
  "which",
-]
-
-[[package]]
-name = "prost-derive"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b670f45da57fb8542ebdbb6105a925fe571b67f9e7ed9f47a06a84e72b4e7cc"
-dependencies = [
- "anyhow",
- "itertools",
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -1368,7 +1347,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4dfaa718ad76a44b3415e6c4d53b17c8f99160dcb3a99b10470fce8ad43f6e3e"
 dependencies = [
  "bytes",
- "prost 0.11.0",
+ "prost",
 ]
 
 [[package]]
@@ -1991,38 +1970,6 @@ dependencies = [
 
 [[package]]
 name = "tonic"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5be9d60db39854b30b835107500cf0aca0b0d14d6e1c3de124217c23a29c2ddb"
-dependencies = [
- "async-stream",
- "async-trait",
- "axum",
- "base64",
- "bytes",
- "futures-core",
- "futures-util",
- "h2",
- "http",
- "http-body",
- "hyper",
- "hyper-timeout",
- "percent-encoding",
- "pin-project",
- "prost 0.10.4",
- "prost-derive 0.10.1",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tower",
- "tower-layer",
- "tower-service",
- "tracing",
- "tracing-futures",
-]
-
-[[package]]
-name = "tonic"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55b9af819e54b8f33d453655bef9b9acc171568fb49523078d0cc4e7484200ec"
@@ -2042,8 +1989,8 @@ dependencies = [
  "hyper-timeout",
  "percent-encoding",
  "pin-project",
- "prost 0.11.0",
- "prost-derive 0.11.0",
+ "prost",
+ "prost-derive",
  "rustls-native-certs",
  "rustls-pemfile 1.0.1",
  "tokio",
@@ -2078,24 +2025,10 @@ checksum = "632faf60b81a5b5f439d9635102b2b2921ee39171faf14f3e0008d99f98689f1"
 dependencies = [
  "async-stream",
  "bytes",
- "prost 0.11.0",
+ "prost",
  "tokio",
  "tokio-stream",
- "tonic 0.8.2",
-]
-
-[[package]]
-name = "tonic-openssl"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc64bfb2812f4311055de425e65745229551438db6add3815b489770da3b906d"
-dependencies = [
- "async-stream",
- "futures",
- "openssl",
- "tokio",
- "tokio-openssl",
- "tonic 0.7.2",
+ "tonic",
 ]
 
 [[package]]
@@ -2108,7 +2041,7 @@ dependencies = [
  "serde",
  "serde_cbor",
  "serde_json",
- "tonic 0.8.2",
+ "tonic",
  "tonic-build",
  "tonic-rpc-macro",
 ]

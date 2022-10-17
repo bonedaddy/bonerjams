@@ -15,7 +15,7 @@ config = {path = "../config"}
 base64 = "0.13"
 tokio = { version = "1", features = [ "rt-multi-thread", "macros", "full", "tracing", "parking_lot", "net"] }
 tokio-stream = { version = "0.1", features = [ "net" ] }
-tonic = {version = "0.8", features = ["tls", "gzip", "tls-roots"]}
+tonic = {version = "0.8", features = ["tls", "gzip", "tls-roots", "channel"]}
 tonic-rpc = {version = "0.2", features = ["json", "cbor"]}
 tonic-health = {version = "0.7.1", features = ["transport"]}
 warp = "0.3"
@@ -33,5 +33,7 @@ hyper = { version = "0.14", features = ["full"] }
 tower-http = { version = "0.3", features = ["add-extension", "util"] }
 h2 = "0.3"
 http-body = "0.4.2"
-tonic-openssl = "0.2.0"
 hyper-openssl = "0.9.2"
+tokio-openssl = "0.6"
+async-stream = "0.3"
+futures = { version = "0.3", default-features = false }
