@@ -31,7 +31,7 @@ impl pub_sub_server::PubSub for PubSubState {
                 let mut subscribers = subscribers.lock().unwrap();
                 subscribers
                     .entry(channel)
-                    .or_insert(vec![])
+                    .or_default()
                     .push(tx.clone());
             }
         });

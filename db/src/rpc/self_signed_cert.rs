@@ -1,19 +1,15 @@
 //! wrapper around multiple libraries to generate self signed certificates
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result};
 use chrono::prelude::*;
 use config::RPC;
-use openssl::{
-    ec::{EcGroup, EcKey},
-    nid::Nid,
-    x509::{X509Name, X509NameRef},
-};
-use rcgen::{date_time_ymd, BasicConstraints, IsCa, KeyIdMethod, PublicKey};
+
+use rcgen::{date_time_ymd, BasicConstraints, IsCa};
 use rcgen::{
-    generate_simple_self_signed, Certificate, CertificateParams, DistinguishedName, SanType,
+    Certificate, CertificateParams,
 };
-use ring::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm};
-use tonic::IntoRequest;
+
+
 
 /// provides a self-signed certificate
 #[derive(Clone, Debug)]
@@ -61,8 +57,8 @@ impl SelfSignedCert {
         if ca {
             params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         }
-        params.not_before = date_time_ymd(now.year().into(), now.month() as u8, now.day() as u8);
-        params.not_after = date_time_ymd(then.year().into(), then.month() as u8, then.day() as u8);
+        params.not_before = date_time_ymd(now.year(), now.month() as u8, now.day() as u8);
+        params.not_after = date_time_ymd(then.year(), then.month() as u8, then.day() as u8);
         if rsa {
             params.alg = &rcgen::PKCS_RSA_SHA256;
 
@@ -73,7 +69,7 @@ impl SelfSignedCert {
             };
         } else {
             params.alg = &rcgen::PKCS_ECDSA_P256_SHA256;
-            params.key_pair = { Some(rcgen::KeyPair::generate(&rcgen::PKCS_ECDSA_P256_SHA256)?) };
+            params.key_pair = Some(rcgen::KeyPair::generate(&rcgen::PKCS_ECDSA_P256_SHA256)?);
         }
         let cert = Certificate::from_params(params)?;
 

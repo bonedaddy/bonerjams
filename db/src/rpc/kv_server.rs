@@ -1,27 +1,24 @@
-use super::{self_signed_cert::SelfSignedCert, string_reader::StringReader, types::*};
+use super::{self_signed_cert::SelfSignedCert, types::*};
 use crate::{
     types::{DbKey, DbTrees},
     DbBatch, DbTree,
 };
 use config::ConnType;
-use hyper::server::conn::Http;
+
 use std::{collections::HashMap, sync::Arc};
 use tokio::net::TcpListener;
 use tokio::net::UnixListener;
-use tokio_rustls::{
-    rustls::{PrivateKey, ServerConfig},
-    TlsAcceptor,
-};
+
 use tokio_stream::wrappers::TcpListenerStream;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{
     metadata::MetadataValue,
-    transport::{Certificate, Identity, Server, ServerTlsConfig},
+    transport::{Identity, Server, ServerTlsConfig},
     Request, Status,
 };
-use tonic::{Response, Streaming};
+
 use tonic_health::ServingStatus;
-use tower_http::ServiceBuilderExt;
+
 #[tonic::async_trait]
 impl key_value_store_server::KeyValueStore for Arc<State> {
     async fn get_kv(
@@ -388,7 +385,7 @@ pub struct ConnInfo {
 mod test {
     use crate::rpc::client::BatchPutEntry;
     use crate::rpc::types::KeyValue;
-    use crate::rpc::{client, self_signed_cert::SelfSignedCert};
+    use crate::rpc::{client};
     use config::{database::DbOpts, Configuration, ConnType, RpcHost, RpcPort, RPC};
     use std::collections::HashMap;
     #[tokio::test(flavor = "multi_thread")]
@@ -447,7 +444,7 @@ mod test {
             false,
         )
         .unwrap();
-        let mut conf = Configuration {
+        let conf = Configuration {
             db: DbOpts {
                 path: "/tmp/kek2232222.db".to_string(),
                 ..Default::default()
@@ -467,7 +464,7 @@ mod test {
         run_server_tls(conf).await;
     }
     // starts the server and runs some basic tests
-    async fn run_server_tls(mut conf: config::Configuration) {
+    async fn run_server_tls(conf: config::Configuration) {
         {
             let conf = conf.clone();
             tokio::spawn(async move { super::start_server(conf).await });

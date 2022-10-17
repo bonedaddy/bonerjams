@@ -69,7 +69,7 @@ impl ToString for ConnType {
                 format!("{}:{}", host, port)
             }
             ConnType::UDS(path) => {
-                format!("{}", path)
+                path.to_string()
             }
         }
     }
