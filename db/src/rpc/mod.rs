@@ -6,7 +6,7 @@ pub mod self_signed_cert;
 pub mod string_reader;
 pub mod tonic_openssl;
 pub mod types;
-
+pub mod pubsub;
 use crate::rpc::types::HealthCheck;
 use crate::types::DbKey;
 use bonerjams_config::ConnType;
@@ -24,7 +24,7 @@ use tonic::{
 use tonic_health::ServingStatus;
 use types::State;
 /// starts the gRPC server providing RPC access to the underlying sled database
-pub async fn start_server(conf: bonerjams_config::Configuration) -> anyhow::Result<()> {
+pub async fn start_server(conf: bonerjams_config::Configuration, pubsub: bool) -> anyhow::Result<()> {
     let state = Arc::new(State {
         db: crate::Database::new(&conf.db)?,
     });
@@ -39,8 +39,16 @@ pub async fn start_server(conf: bonerjams_config::Configuration) -> anyhow::Resu
             let identity = Identity::from_pem(tls_cert_info.cert()?, tls_cert_info.key()?);
 
             let server_builder = Server::builder()
+                .http2_keepalive_interval(Some(std::time::Duration::from_secs(1)))
                 .tls_config(ServerTlsConfig::new().identity(identity))?
                 .add_service(health_service);
+            let server_builder = if pubsub {
+                server_builder.add_service(crate::prelude::pub_sub_server::PubSubServer::new(types::PubSubState {
+                    subscribers: Default::default()
+                }))
+            } else {
+                server_builder
+            };
 
             let server_builder = if !conf.rpc.auth_token.is_empty() {
                 let auth_token = Arc::new(conf.rpc.auth_token.clone());
@@ -66,7 +74,16 @@ pub async fn start_server(conf: bonerjams_config::Configuration) -> anyhow::Resu
             Ok(server_builder.serve_with_incoming(listener).await?)
         }
         ConnType::HTTP(_, _) => {
-            let server_builder = Server::builder().add_service(health_service);
+            let server_builder = Server::builder()
+            .http2_keepalive_interval(Some(std::time::Duration::from_secs(1)))
+            .add_service(health_service);
+            let server_builder = if pubsub {
+                server_builder.add_service(crate::prelude::pub_sub_server::PubSubServer::new(types::PubSubState {
+                    subscribers: Default::default()
+                }))
+            } else {
+                server_builder
+            };
 
             let server_builder = if !conf.rpc.auth_token.is_empty() {
                 let auth_token = Arc::new(conf.rpc.auth_token.clone());
@@ -93,6 +110,13 @@ pub async fn start_server(conf: bonerjams_config::Configuration) -> anyhow::Resu
         }
         ConnType::UDS(path) => {
             let server_builder = Server::builder().add_service(health_service);
+            let server_builder = if pubsub {
+                server_builder.add_service(crate::prelude::pub_sub_server::PubSubServer::new(types::PubSubState {
+                    subscribers: Default::default()
+                }))
+            } else {
+                server_builder
+            };
 
             let server_builder = if conf.rpc.auth_token.is_empty() {
                 let auth_token = Arc::new(conf.rpc.auth_token.clone());

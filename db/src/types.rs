@@ -6,11 +6,14 @@ pub trait DbKey {
     fn key(&self) -> anyhow::Result<Vec<u8>>;
 }
 
-/// various trees and their keys for use with sled
+/// provides convenience types for interacting with trees
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbTrees<'a> {
+    /// custom tree names specified as strings
     Custom(&'a str),
+    /// custom tree names specified as raw bytes
     Binary(&'a [u8]),
+    /// the default tree
     Default,
 }
 

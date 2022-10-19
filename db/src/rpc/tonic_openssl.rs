@@ -205,8 +205,17 @@ impl CustomChannel {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut http = HttpConnector::new();
         http.enforce_http(false);
+        http.set_keepalive(Some(std::time::Duration::from_secs(1)));
         let client = match tls {
-            false => CustomClient::ClearText(Client::builder().http2_only(true).build(http)),
+            false => {
+                CustomClient::ClearText(
+                    Client::builder()
+                    .http2_adaptive_window(true)
+                    .http2_keep_alive_while_idle(true)
+                    .http2_keep_alive_interval(std::time::Duration::from_secs(1))
+                    .http2_only(true)
+                    .build(http))
+            }
             true => {
                 let mut connector = SslConnector::builder(SslMethod::tls())?;
                 connector.set_alpn_protos(ALPN_H2_WIRE)?;
@@ -216,7 +225,14 @@ impl CustomChannel {
                     c.set_verify(openssl::ssl::SslVerifyMode::NONE);
                     Ok(())
                 });
-                CustomClient::Tls(Client::builder().http2_only(true).build(https))
+                CustomClient::Tls(
+                    Client::builder()
+                    .http2_keep_alive_while_idle(true)
+                    .http2_keep_alive_interval(std::time::Duration::from_secs(1))
+                    .http2_only(true)
+                    .http2_only(true)
+                    .build(https)
+                )
             }
         };
 

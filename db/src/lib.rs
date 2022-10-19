@@ -10,6 +10,11 @@ use std::sync::Arc;
 
 use self::types::{DbKey, DbTrees};
 
+pub mod prelude {
+    pub use super::types::*;
+    pub use super::rpc::{client::*, kv_server::*, self_signed_cert::*, types::*};
+}
+
 /// Database is the main embedded database object using the
 /// sled db
 #[derive(Clone)]
@@ -71,11 +76,10 @@ impl Database {
     }
     /// destroys all trees except the default tree
     pub fn destroy(self: &Arc<Self>) {
-        const SLED_DEFAULT_TREE: &[u8] = b"__sled__default";
         self.db
             .tree_names()
             .iter()
-            .filter(|tree_name| tree_name.as_ref().ne(SLED_DEFAULT_TREE))
+            .filter(|tree_name| tree_name.as_ref().ne(types::DEFAULT_TREE_ID.as_bytes()))
             .for_each(|tree_name| {
                 if let Err(err) = self.db.drop_tree(tree_name) {
                     log::error!("failed to drop tree {:?}: {:#?}", tree_name.as_ref(), err);
@@ -157,7 +161,7 @@ impl DbTree {
     pub fn get<K: AsRef<[u8]>>(&self, key: K) -> sled::Result<Option<sled::IVec>> {
         self.tree.get(key)
     }
-    /// currently broken
+    /* currently broken
     pub fn entries2<K: PartialEq + DbKey, T>(&self, skip_keys: &[K]) -> Result<Vec<T>>
     where
         T: serde::de::DeserializeOwned,
@@ -190,7 +194,7 @@ impl DbTree {
                 }
             })
             .collect())
-    }
+    }*/
     pub fn deserialize<K: AsRef<[u8]>, T>(&self, key: K) -> Result<T>
     where
         T: serde::de::DeserializeOwned,
@@ -254,112 +258,5 @@ impl DbBatch {
     }
     pub fn count(&self) -> u64 {
         self.count
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use serde::Deserialize;
-    use std::fs::remove_dir_all;
-
-    #[derive(Serialize, Deserialize)]
-    pub struct TestData {
-        pub key: String,
-        pub foo: String,
-    }
-
-    impl DbKey for TestData {
-        fn key(&self) -> anyhow::Result<Vec<u8>> {
-            Ok(self.key.as_bytes().to_vec())
-        }
-    }
-
-    // performs very basic database testing
-    #[test]
-    fn test_db_basic() {
-        let db_opts = DbOpts::default();
-
-        let db = Database::new(&db_opts).unwrap();
-        let insert = || {
-            let mut db_batch = DbBatch::new();
-            db_batch
-                .insert(&TestData {
-                    key: "key1".to_string(),
-                    foo: "foo1".to_string(),
-                })
-                .unwrap();
-            {
-                let tree = db.open_tree(DbTrees::Custom("foobar")).unwrap();
-                tree.apply_batch(&mut db_batch).unwrap();
-                assert_eq!(tree.len(), 1);
-            }
-
-            db_batch
-                .insert(&TestData {
-                    key: "key2".to_string(),
-                    foo: "foo2".to_string(),
-                })
-                .unwrap();
-            {
-                let tree = db.open_tree(DbTrees::Custom("foobar")).unwrap();
-                tree.apply_batch(&mut db_batch).unwrap();
-                assert_eq!(tree.len(), 2);
-            }
-
-            db_batch
-                .insert(&TestData {
-                    key: "key3".to_string(),
-                    foo: "foo3".to_string(),
-                })
-                .unwrap();
-            {
-                let tree = db.open_tree(DbTrees::Custom("foobarbaz")).unwrap();
-                tree.apply_batch(&mut db_batch).unwrap();
-                assert_eq!(tree.len(), 1);
-            }
-            db_batch
-                .insert(&TestData {
-                    key: "key4".to_string(),
-                    foo: "foo4".to_string(),
-                })
-                .unwrap();
-            {
-                db.apply_batch(&mut db_batch).unwrap();
-            }
-        };
-        let query = || {
-            let foobar_values = db.list_values(DbTrees::Custom("foobar")).unwrap();
-            assert_eq!(foobar_values.len(), 2);
-            let test_data_one: TestData = db
-                .open_tree(DbTrees::Custom("foobar"))
-                .unwrap()
-                .deserialize(foobar_values[0].0.clone())
-                .unwrap();
-            assert_eq!(test_data_one.key, "key1".to_string());
-            assert_eq!(test_data_one.foo, "foo1".to_string());
-            let test_data_two: TestData = db
-                .open_tree(DbTrees::Custom("foobar"))
-                .unwrap()
-                .deserialize(foobar_values[1].0.clone())
-                .unwrap();
-            assert_eq!(test_data_two.key, "key2".to_string());
-            assert_eq!(test_data_two.foo, "foo2".to_string());
-            let foobarbaz_values = db.list_values(DbTrees::Custom("foobarbaz")).unwrap();
-            assert_eq!(foobarbaz_values.len(), 1);
-            let test_data_three: TestData = db
-                .open_tree(DbTrees::Custom("foobarbaz"))
-                .unwrap()
-                .deserialize(foobarbaz_values[0].0.clone())
-                .unwrap();
-            assert_eq!(test_data_three.key, "key3".to_string());
-            assert_eq!(test_data_three.foo, "foo3".to_string());
-            let default_tree_values = db.list_values(DbTrees::Default).unwrap();
-            assert_eq!(default_tree_values.len(), 1);
-        };
-        insert();
-        query();
-        db.destroy();
-        remove_dir_all("test_infos.db").unwrap();
     }
 }

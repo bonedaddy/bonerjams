@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
 use bonerjams_config::Configuration;
 use clap::{App, Arg, SubCommand};
+use tokio::select;
+use tokio_stream::wrappers::ReceiverStream;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -25,6 +27,13 @@ async fn main() -> Result<()> {
                 .help("sets the config file")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("debug")
+                .long("debug")
+                .help("enables debug logs")
+                .takes_value(false)
+                .required(false),
+        )
         .subcommand(
             SubCommand::with_name("config")
                 .about("config management commands")
@@ -43,40 +52,57 @@ async fn main() -> Result<()> {
                             .help("the hosts to create the certificate for")
                             .min_values(1)
                             .required(true),
+                    )                        .arg(
+                        Arg::with_name("validity-period")
+                            .long("validity-period")
+                            .help("the number of days  the  cert is validate for")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name("is-ca")
+                            .long("is-ca")
+                            .help("if present, marks the certificate as a ca certificate")
+                            .takes_value(false)
+                            .required(false),
+                    )
+                    .arg(
+                        Arg::with_name("rsa")
+                            .long("rsa")
+                            .help("if present generate an rsa certificate, otherwise secp256r1")
+                            .takes_value(false)
+                            .required(false),
                     ),
                 ]),
         )
-        .subcommand(SubCommand::with_name("server").about("run the bonerjams kv server"))
+        .subcommand(
+            SubCommand::with_name("server")
+            .about("run the bonerjams kv server")
+            .arg(
+                Arg::with_name("enable-pubsub")
+                .long("enable-pubsub")
+                .help("if present, enable the pubsub service")
+                .takes_value(false)
+                .required(false)
+            )
+        )
         .subcommand(
             SubCommand::with_name("client")
                 .about("bonerjams client management")
                 .subcommands(vec![
+                    SubCommand::with_name("sub")
+                    .about("create a pubsub scription for the given topic")
+                    .arg(key_flag.clone()),
+                    SubCommand::with_name("pub")
+                    .about("publishes messages to the pubsub server")
+                    .arg(key_flag.clone())
+                    .arg(value_flag.clone()),
                     SubCommand::with_name("put")
                         .arg(key_flag.clone())
                         .arg(value_flag.clone()),
                     SubCommand::with_name("get")
                         .arg(key_flag.clone())
-                        .arg(
-                            Arg::with_name("validitiy-period")
-                                .long("validity-period")
-                                .help("the number of days  the  cert is validate for")
-                                .takes_value(true)
-                                .required(true),
-                        )
-                        .arg(
-                            Arg::with_name("is-ca")
-                                .long("is-ca")
-                                .help("if present, marks the certificate as a ca certificate")
-                                .takes_value(false)
-                                .required(false),
-                        )
-                        .arg(
-                            Arg::with_name("rsa")
-                                .long("rsa")
-                                .help("if present generate an rsa certificate, otherwise secp256r1")
-                                .takes_value(false)
-                                .required(false),
-                        ),
+
                 ]),
         )
         .get_matches();
@@ -88,7 +114,7 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
     match matches.subcommand() {
         ("config", Some(conf_cmd)) => match conf_cmd.subcommand() {
             ("new", Some(_)) => Ok(Configuration::default().save(config_file_path, false)?),
-            ("new-grpc-certificate", Some(new_cert)) => {
+            ("new-certificate", Some(new_cert)) => {
                 let hosts = new_cert
                     .values_of("hosts")
                     .unwrap()
@@ -100,8 +126,8 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
                 let cert = bonerjams_db::rpc::self_signed_cert::SelfSignedCert::new(
                     &hosts[..],
                     matches
-                        .value_of("validity-period-days")
-                        .unwrap()
+                        .value_of("validity-period")
+                        .unwrap_or("10")
                         .parse()
                         .unwrap(),
                     matches.is_present("rsa"),
@@ -113,15 +139,15 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
             }
             _ => invalid_subcommand("config"),
         },
-        ("server", Some(_)) => {
+        ("server", Some(server_cmd)) => {
             let conf = get_config(config_file_path)?;
-            bonerjams_config::init_log(false)?;
-            bonerjams_db::rpc::start_server(conf).await
+            bonerjams_config::init_log(matches.is_present("debug"))?;
+            bonerjams_db::rpc::start_server(conf, server_cmd.is_present("enable-pubsub")).await
         }
         ("client", Some(client_cmd)) => match client_cmd.subcommand() {
             ("put", Some(put_cmd)) => {
                 let conf = get_config(config_file_path)?;
-                bonerjams_config::init_log(false)?;
+                bonerjams_config::init_log(matches.is_present("debug"))?;
                 let client = bonerjams_db::rpc::client::Client::new(
                     &conf,
                     &conf.rpc.auth_token,
@@ -137,7 +163,7 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
             }
             ("get", Some(get_cmd)) => {
                 let conf = get_config(config_file_path)?;
-                bonerjams_config::init_log(false)?;
+                bonerjams_config::init_log(matches.is_present("debug"))?;
                 let client = bonerjams_db::rpc::client::Client::new(
                     &conf,
                     &conf.rpc.auth_token,
@@ -148,6 +174,36 @@ async fn process_matches<'a>(matches: &clap::ArgMatches<'a>, config_file_path: &
                     .get(get_cmd.value_of("key").unwrap().as_bytes())
                     .await?;
                 log::info!("val {}", String::from_utf8(val)?);
+                Ok(())
+            }
+            ("sub", Some(sub_cmd)) => {
+                let conf = get_config(config_file_path)?;
+                bonerjams_config::init_log(matches.is_present("debug"))?;
+                let mut client = bonerjams_db::rpc::client::Client::new(
+                    &conf,
+                    &conf.rpc.auth_token,
+                    !conf.rpc.tls_cert.is_empty() && !conf.rpc.tls_key.is_empty(),
+                )
+                .await?;
+                let (tx, rx) = tokio::sync::mpsc::channel(10);
+                let mut sub = client.subscribe(sub_cmd.value_of("key").unwrap(), tx, ReceiverStream::new(rx)).await?;
+                loop {
+                    while let Ok(Some(channel)) = sub.message().await {
+                        log::info!("received message(topic={}, data={})", channel.0, channel.1)
+                    }
+                }
+            }
+            ("pub", Some(pub_cmd)) => {
+                let conf = get_config(config_file_path)?;
+                bonerjams_config::init_log(matches.is_present("debug"))?;
+                let mut client = bonerjams_db::rpc::client::Client::new(
+                    &conf,
+                    &conf.rpc.auth_token,
+                    !conf.rpc.tls_cert.is_empty() && !conf.rpc.tls_key.is_empty(),
+                )
+                .await?;
+                client.ready().await?;
+                client.publish2(pub_cmd.value_of("key").unwrap(), pub_cmd.value_of("value").unwrap()).await?;
                 Ok(())
             }
             _ => invalid_subcommand("client"),
