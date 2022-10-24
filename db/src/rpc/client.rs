@@ -111,6 +111,12 @@ impl Client {
         inner.publish2(topic, value).await?;
         Ok(())
     }
+    pub async fn list_topics(
+        self: &Arc<Self>,
+    ) -> Result<Vec<String>> {
+        let mut inner = self.inner.clone();
+        inner.list_topics().await
+    }
 }
 
 impl InnerClient {
@@ -354,5 +360,11 @@ impl InnerClient {
         let mut pc = self.pubsub_client();
         pc.publish((topic.to_string(), value.to_string())).await?;
         Ok(())
+    }
+    pub async fn list_topics(
+        &mut self,
+    ) -> Result<Vec<String>> {
+        let mut pc = self.pubsub_client();
+        Ok(pc.list_topics(()).await?.into_inner())
     }
 }
