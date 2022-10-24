@@ -157,10 +157,9 @@ use std::sync::{Arc, Mutex};
 pub type Update = Result<(String, String), tonic::Status>;
 
 /// a basis state object to be used with the reference pubsub implementation
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct PubSubState {
-    pub data: Arc<Mutex<HashMap<String, String>>>,
-    pub subscribers: Arc<Mutex<HashMap<String, Vec<mpsc::Sender<Update>>>>>,
+    pub subscribers: Arc<super::pubsub::Broadcaster<Update>>,
 }
 
 /// Provides a trait that can be used to implement extremely basic publish/subscribe patterns.
@@ -174,4 +173,19 @@ trait PubSub {
     fn sub(channel: String) -> (String, String);
     /// publishes the given value on the given channel
     fn publish(channel: String, value: String) -> ();
+}
+
+
+impl PubSubState {
+    pub fn new() -> Self {
+        Self {
+            subscribers: Default::default()
+        }
+    }
+}
+
+impl Default for PubSubState {
+    fn default() -> Self {
+        Self::new()
+    }
 }

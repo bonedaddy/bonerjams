@@ -3,3 +3,5 @@ test_infos.db
 ./bonerjams
 config.yaml
 bonerjams
+
+bonerjams-cli

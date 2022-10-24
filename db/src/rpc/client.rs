@@ -4,6 +4,10 @@ use super::types::*;
 use anyhow::{anyhow, Result};
 use hyper::header::HeaderValue;
 use hyper::Uri;
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::Sender;
+use tokio_stream::wrappers::ReceiverStream;
+use tonic::Streaming;
 
 use std::{str::FromStr, sync::Arc};
 
@@ -76,6 +80,37 @@ impl Client {
         let mut inner = self.inner.clone();
         inner.batch_exists(args).await
     }
+    pub async fn subscribe(
+        self: &Arc<Self>,
+        topic: &str,
+        tx: Sender<String>,
+        rx: ReceiverStream<String>,
+    ) -> Result<Streaming<(String, String)>> {
+        let mut inner = self.inner.clone();
+        // send the topic to subscribe to
+        tx.send(topic.to_string()).await?;
+        // initialize the subscription
+        let subscription = inner.subscribe(rx).await?;
+        Ok(subscription)
+    }
+    pub async fn publish(
+        self: &Arc<Self>,
+        topic: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<()> {
+        let mut inner = self.inner.clone();
+        inner.publish(topic, value).await?;
+        Ok(())
+    }
+    pub async fn publish2(
+        self: &Arc<Self>,
+        topic: &str,
+        value: &str,
+    ) -> Result<()> {
+        let mut inner = self.inner.clone();
+        inner.publish2(topic, value).await?;
+        Ok(())
+    }
 }
 
 impl InnerClient {
@@ -111,6 +146,39 @@ impl InnerClient {
     }
     fn client(&mut self) -> key_value_store_client::KeyValueStoreClient<CustomChannel> {
         key_value_store_client::KeyValueStoreClient::new(self.kc.clone())
+    }
+    async fn authenticated_pubsub_client(
+        &mut self,
+    ) -> Result<
+        pub_sub_client::PubSubClient<
+            impl Service<
+                    hyper::Request<BoxBody>,
+                    Response = hyper::Response<
+                        impl hyper::body::HttpBody<
+                            Data = hyper::body::Bytes,
+                            Error = impl Into<tower_http::BoxError>,
+                        >,
+                    >,
+                    Error = impl Into<tower_http::BoxError>,
+                > + Clone
+                + Send
+                + Sync
+                + 'static,
+        >,
+        tonic::transport::Error,
+    > {
+        Ok(pub_sub_client::PubSubClient::new(
+            ServiceBuilder::new()
+                // Set a `User-Agent` header
+                .layer(SetRequestHeaderLayer::overriding(
+                    http::header::HeaderName::from_bytes("authorization".as_bytes()).unwrap(),
+                    HeaderValue::from_str(&self.auth_token).unwrap(),
+                ))
+                .service(self.kc.clone()),
+        ))
+    }
+    fn pubsub_client(&mut self) -> pub_sub_client::PubSubClient<CustomChannel> {
+        pub_sub_client::PubSubClient::new(self.kc.clone())
     }
     /// args maps trees -> keyvalues
     async fn batch_put(&mut self, args: Vec<(Vec<u8>, Vec<BatchPutEntry>)>) -> Result<()> {
@@ -257,5 +325,34 @@ impl InnerClient {
                 Err(err) => Err(anyhow!("{:#?}", err)),
             }
         }
+    }
+    pub async fn subscribe(
+        &mut self,
+        rx: ReceiverStream<String>
+    ) -> Result<Streaming<(String, String)>> {
+        let mut pc = self.pubsub_client();
+        let updates = match pc.sub(rx).await {
+            Ok(sub) => sub.into_inner(),
+            Err(err) => return Err(anyhow!("failed to subscribe {:#?}", err))
+        };
+        Ok(updates)
+    }
+    pub async fn publish(
+        &mut self,
+        topic: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<()> {
+        let mut pc = self.pubsub_client();
+        pc.publish((base64::encode(topic), base64::encode(value))).await?;
+        Ok(())
+    }
+    pub async fn publish2(
+        &mut self,
+        topic: &str,
+        value: &str,
+    ) -> Result<()> {
+        let mut pc = self.pubsub_client();
+        pc.publish((topic.to_string(), value.to_string())).await?;
+        Ok(())
     }
 }
