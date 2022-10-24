@@ -43,4 +43,13 @@ impl pub_sub_server::PubSub for PubSubState {
         self.subscribers.clone().publish(key.clone(), Ok((key, value)));
         Ok(tonic::Response::new(()))
     }
+    async fn list_topics(
+        &self,
+        _request: tonic::Request<()>,
+    ) -> Result<tonic::Response<Vec<String>>, Status> {
+        let topics = self.subscribers.topics().clone();
+        let topics = topics.into_iter().map(|(topic, _)| topic.clone()).collect::<Vec<_>>();
+
+        Ok(tonic::Response::new(topics))
+    }
 }

@@ -173,6 +173,7 @@ trait PubSub {
     fn sub(channel: String) -> (String, String);
     /// publishes the given value on the given channel
     fn publish(channel: String, value: String) -> ();
+    fn list_topics() -> Vec<String>;
 }
 
 
