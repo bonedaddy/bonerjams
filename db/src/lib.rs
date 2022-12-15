@@ -1,6 +1,6 @@
 //! an embedded database using the sled framework
 
-pub mod rpc;
+pub mod api;
 use serde::Serialize;
 pub mod types;
 use anyhow::{anyhow, Result};
@@ -11,8 +11,8 @@ use std::sync::Arc;
 use self::types::{DbKey, DbTrees};
 
 pub mod prelude {
+    pub use super::api::{kv_server::*, types::*};
     pub use super::types::*;
-    pub use super::rpc::{client::*, kv_server::*, self_signed_cert::*, types::*};
 }
 
 /// Database is the main embedded database object using the

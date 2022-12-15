@@ -36,7 +36,6 @@ fn test_db_basic() {
             tree.apply_batch(&mut db_batch).unwrap();
             tree.flush().unwrap();
             assert_eq!(tree.len(), 1);
-
         }
 
         db_batch
@@ -73,7 +72,9 @@ fn test_db_basic() {
         {
             db.apply_batch(&mut db_batch).unwrap();
         }
-        db_batch.insert_raw("rawkey".as_bytes(), "rawvalue".as_bytes()).unwrap();
+        db_batch
+            .insert_raw("rawkey".as_bytes(), "rawvalue".as_bytes())
+            .unwrap();
         {
             let tree = db.open_tree(DbTrees::Binary("rawkeys".as_bytes())).unwrap();
             tree.apply_batch(&mut db_batch).unwrap();
@@ -110,7 +111,9 @@ fn test_db_basic() {
         assert_eq!(test_data_three.foo, "foo3".to_string());
         let default_tree_values = db.list_values(DbTrees::Default).unwrap();
         assert_eq!(default_tree_values.len(), 1);
-        let raw_values = db.list_values(DbTrees::Binary("rawkeys".as_bytes())).unwrap();
+        let raw_values = db
+            .list_values(DbTrees::Binary("rawkeys".as_bytes()))
+            .unwrap();
         assert_eq!(raw_values.len(), 1);
         assert_eq!(raw_values[0].0, "rawkey".as_bytes());
         assert_eq!(raw_values[0].1, "rawvalue".as_bytes());
@@ -179,7 +182,9 @@ async fn test_db_basic_async() {
         {
             db.apply_batch(&mut db_batch).unwrap();
         }
-        db_batch.insert_raw("rawkey".as_bytes(), "rawvalue".as_bytes()).unwrap();
+        db_batch
+            .insert_raw("rawkey".as_bytes(), "rawvalue".as_bytes())
+            .unwrap();
         {
             let tree = db.open_tree(DbTrees::Binary("rawkeys".as_bytes())).unwrap();
             tree.apply_batch(&mut db_batch).unwrap();
@@ -188,7 +193,8 @@ async fn test_db_basic_async() {
         }
         db.flush().unwrap();
         db.flush_async().await.unwrap();
-    }.await;
+    }
+    .await;
     async {
         let foobar_values = db.list_values(DbTrees::Custom("foobar")).unwrap();
         assert_eq!(foobar_values.len(), 2);
@@ -217,11 +223,14 @@ async fn test_db_basic_async() {
         assert_eq!(test_data_three.foo, "foo3".to_string());
         let default_tree_values = db.list_values(DbTrees::Default).unwrap();
         assert_eq!(default_tree_values.len(), 1);
-        let raw_values = db.list_values(DbTrees::Binary("rawkeys".as_bytes())).unwrap();
+        let raw_values = db
+            .list_values(DbTrees::Binary("rawkeys".as_bytes()))
+            .unwrap();
         assert_eq!(raw_values.len(), 1);
         assert_eq!(raw_values[0].0, "rawkey".as_bytes());
         assert_eq!(raw_values[0].1, "rawvalue".as_bytes());
-    }.await;
+    }
+    .await;
     db.destroy();
     std::fs::remove_dir_all("test_db_basic_async.db").unwrap();
 }

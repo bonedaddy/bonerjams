@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
+pub mod cluster;
 pub mod database;
 use simplelog::*;
 
 #[derive(Clone, Deserialize, Serialize, Default)]
 pub struct Configuration {
     pub db: database::DbOpts,
-    pub rpc: RPC,
+    pub api: API,
 }
 
 impl Configuration {
@@ -32,74 +33,32 @@ impl Configuration {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct RPC {
-    pub auth_token: String,
-    pub connection: ConnType,
-    pub tls_cert: String,
-    pub tls_key: String,
+pub struct API {
+    pub listen_address: String,
+    pub concurrency_limit: u64,
+    pub timeout: u64,
+    pub cors: Option<CORSConfig>,
+    pub tls_cert: Option<String>,
+    pub tls_key: Option<String>,
 }
-
-impl RPC {
-    /// returns the url used by the server when establishing the listener
-    pub fn server_url(&self) -> String {
-        self.connection.to_string()
-    }
-    pub fn client_url(&self) -> String {
-        self.connection.to_client_url()
-    }
-}
-
-pub type RpcHost = String;
-pub type RpcPort = String;
-pub type UDSPath = String;
-
 #[derive(Serialize, Deserialize, Clone)]
-pub enum ConnType {
-    HTTPS(RpcHost, RpcPort),
-    HTTP(RpcHost, RpcPort),
-    /// unix domain socket
-    UDS(UDSPath),
+pub struct CORSConfig {
+    pub allowed_origins: Vec<String>,
+    pub allow_credentials: bool,
 }
 
-/// the return value of `to_string` can be used for the server listening address
-impl ToString for ConnType {
-    fn to_string(&self) -> String {
-        match self {
-            ConnType::HTTP(host, port) | ConnType::HTTPS(host, port) => {
-                format!("{}:{}", host, port)
-            }
-            ConnType::UDS(path) => path.to_string(),
-        }
-    }
-}
-
-impl ConnType {
-    /// used to convert a server url into a client url by prefixing the protocol
-    pub fn to_client_url(&self) -> String {
-        match self {
-            ConnType::HTTP { .. } => {
-                format!("http://{}", self.to_string())
-            }
-            ConnType::HTTPS { .. } => {
-                format!("https://{}", self.to_string())
-            }
-            ConnType::UDS { .. } => {
-                format!("unix://{}", self.to_string())
-            }
-        }
-    }
-}
-
-impl Default for RPC {
+impl Default for API {
     fn default() -> Self {
         Self {
-            auth_token: "".to_string(),
-            connection: ConnType::HTTP(
-                "127.0.0.1".to_string() as RpcHost,
-                "6969".to_string() as RpcPort,
-            ),
-            tls_cert: "".to_string(),
-            tls_key: "".to_string(),
+            listen_address: "127.0.0.1:3001".to_string(),
+            concurrency_limit: 64,
+            timeout: 64,
+            cors: Some(CORSConfig {
+                allowed_origins: vec!["*".to_string()],
+                allow_credentials: false,
+            }),
+            tls_cert: None,
+            tls_key: None,
         }
     }
 }

@@ -12,30 +12,20 @@ readme = "../README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = {version = "1", features = ["derive"]}
-serde_json = "1"
-sled = "0.34.7"
 anyhow = "1"
-log = "0.4"
-bonerjams-config = {path = "../config", version = "0.0.2"}
+tracing = "0.1"
+tracing-subscriber = "0.3"
+serde_json = "1"
+thiserror = "1"
 base64 = "0.13"
-tokio = { version = "1", features = [ "rt-multi-thread", "macros", "full", "tracing", "parking_lot", "net"] }
-tokio-stream = { version = "0.1", features = [ "net", "io-util", "sync"] }
-tonic = {version = "0.8", features = ["tls", "gzip", "tls-roots", "channel"]}
-tonic-rpc = {version = "0.2", features = ["json", "cbor"]}
-tonic-health = {version = "0.7.1", features = ["transport"]}
-http = "0.2"
-tower = "0.4"
-rcgen = {version = "0.10.0", features = ["x509-parser"]}
-chrono = "0.4"
-openssl = "0.10"
-hyper = { version = "0.14", features = ["full"] }
-tower-http = { version = "0.3", features = ["full", "add-extension", "util"] }
-hyper-openssl = "0.9.2"
-tokio-openssl = "0.6"
-async-stream = "0.3"
-futures = { version = "0.3", default-features = false }
-dashmap = "5.4.0"
-general_pub_sub = "0.1.0"
-[dev-dependencies]
-criterion = {version = "0.3", features = ["async_tokio"]}
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+datacake-sled = {git = "https://github.com/bonedaddy/datacake.git", rev = "0a9b284de435ab118c0ee284594a975d5f04ec64" }
+datacake = {git = "https://github.com/bonedaddy/datacake.git", rev = "0a9b284de435ab118c0ee284594a975d5f04ec64" }
+sled = "0.34"
+axum = {version = "0.6.1", features = [ "headers"]}
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.3.0", features = ["full"] }
+tokio = { version = "1", features = ["full", "parking_lot"] }
+bonerjams-config = {path = "../config", version = "0.0.2"}
+hyper = "0.14"
