@@ -64,6 +64,7 @@ pub fn new_router<S: Storage + Send + Sync + 'static>(
         .route("/put", post(self::kv_server::put_value))
         .route("/get", post(self::kv_server::get_value))
         .route("/delete", post(self::kv_server::remove_value))
+        .route("/cluster/stats", post(self::kv_server::cluster_stat))
         .layer(
             ServiceBuilder::new()
                 // Handle errors from middleware
