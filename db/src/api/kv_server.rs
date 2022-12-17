@@ -2,7 +2,7 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use crate::api::error::Error;
-use crate::prelude::{GetKVsResponse, Status, WrappedDocument};
+use crate::prelude::{ClusterStatistics, GetKVsResponse, Status, WrappedDocument};
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
@@ -106,4 +106,21 @@ pub async fn remove_value<S: Storage + Send + Sync + 'static>(
             msg: "ok".to_string(),
         }),
     ))
+}
+
+pub async fn cluster_stat<S: Storage + Send + Sync + 'static>(
+    State(handle): State<Arc<ApiState<S>>>,
+) -> ApiResult<(StatusCode, Json<ClusterStatistics>)> {
+    let stats = handle.cluster_api.statistics();
+
+    let res_stats = ClusterStatistics {
+        num_live_members: stats.num_live_members(),
+        num_data_centers: stats.num_data_centers(),
+        num_ongoing_sync_tasks: stats.num_ongoing_sync_tasks(),
+        num_slow_sync_tasks: stats.num_slow_sync_tasks(),
+        num_failed_sync_tasks: stats.num_failed_sync_tasks(),
+        num_keyspace_changes: stats.num_keyspace_changes(),
+        num_dead_members: stats.num_dead_members(),
+    };
+    Ok((StatusCode::OK, Json(res_stats)))
 }

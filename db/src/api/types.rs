@@ -87,7 +87,6 @@ pub struct GetKVsRequest {
 pub struct GetKVsResponse {
     pub entries: HashMap<String, Vec<WrappedDocument>>,
 }
-
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct ExistKVsResponse {
     pub entries: HashMap<String, HashMap<String, Exists>>,
@@ -113,4 +112,22 @@ pub struct Status {
 pub struct WrappedDocument {
     pub key: String,
     pub data: Vec<u8>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct ClusterStatistics {
+    /// The number of currently alive members the node is aware of.
+    pub num_live_members: u64,
+    /// The number of members the node currently believes is dead.
+    pub num_dead_members: u64,
+    /// The number of synchronisation tasks that are currently running concurrently.
+    pub num_ongoing_sync_tasks: u64,
+    /// The number of synchronisation tasks that took longer than the selected timeout.
+    pub num_slow_sync_tasks: u64,
+    /// The number of sync tasks that failed to complete due to an error.
+    pub num_failed_sync_tasks: u64,
+    /// The number of times the node has observed a remote keyspace change.
+    pub num_keyspace_changes: u64,
+    /// The number of data centers/availability zones the cluster belongs to.
+    pub num_data_centers: u64,
 }

@@ -10,6 +10,9 @@ documentation = "https://docs.rs/bonerjams-db"
 readme = "../README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["client"]
+client = ["reqwest"]
 
 [dependencies]
 anyhow = "1"
@@ -20,8 +23,8 @@ thiserror = "1"
 base64 = "0.13"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
-datacake-sled = {git = "https://github.com/bonedaddy/datacake.git", rev = "0a9b284de435ab118c0ee284594a975d5f04ec64" }
-datacake = {git = "https://github.com/bonedaddy/datacake.git", rev = "0a9b284de435ab118c0ee284594a975d5f04ec64" }
+datacake-sled = {git = "https://github.com/bonedaddy/datacake.git", rev = "47064decb0504043f568e0187e4aa7160773a3fd" }
+datacake = {git = "https://github.com/bonedaddy/datacake.git", rev = "47064decb0504043f568e0187e4aa7160773a3fd" }
 sled = "0.34"
 axum = {version = "0.6.1", features = [ "headers"]}
 tower = { version = "0.4", features = ["full"] }
@@ -29,3 +32,5 @@ tower-http = { version = "0.3.0", features = ["full"] }
 tokio = { version = "1", features = ["full", "parking_lot"] }
 bonerjams-config = {path = "../config", version = "0.0.2"}
 hyper = "0.14"
+age = "0.9"
+reqwest = { version = "0.11", features = ["json"], optional = true}

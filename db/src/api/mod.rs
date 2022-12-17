@@ -1,5 +1,8 @@
 //! Provides an api for a distributed, replicated key-value store built upon datacake
 
+#[cfg(feature = "client")]
+pub mod client;
+
 pub mod error;
 pub mod kv_server;
 pub mod types;
@@ -105,14 +108,14 @@ mod test {
     async fn test_key_value_server() {
         std::env::set_var("RUST_LOG", "debug");
         let _ = tracing_subscriber::fmt::try_init();
-
+        let node_d = age::x25519::Identity::generate();
         let store_1 = SledStorage::open_temporary().unwrap();
 
         let addr_1 = "127.0.0.1:9000".parse::<SocketAddr>().unwrap();
         let connection_cfg_1 = ConnectionConfig::new(addr_1, addr_1, Vec::<String>::new());
 
         let cluster_1 = DatacakeCluster::connect(
-            "node-1",
+            node_d,
             connection_cfg_1,
             store_1,
             DCAwareSelector::default(),
